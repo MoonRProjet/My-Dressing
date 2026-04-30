@@ -79,6 +79,7 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _selectedIndex = 0;
+  String? _openedCategory; 
   final ImagePicker _picker = ImagePicker();
 
   List<Cloth> myWardrobe = [];
@@ -118,87 +119,83 @@ class _MainNavigationState extends State<MainNavigation> {
     });
   }
 
-  // --- LOGIQUE STATISTIQUES ---
+  // --- VUES DRESSING (DOSSIERS) ---
 
-  Widget _buildStatCard(String title, String value, IconData icon) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Icon(icon, size: 30, color: Colors.indigo),
-            const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildDressingContent() {
+    if (_openedCategory == null) {
+      var activeCategories = myCategories.where((cat) => myWardrobe.any((cloth) => cloth.mainCategory == cat.name)).toList();
 
-  Widget _buildStatsTab() {
-    if (myWardrobe.isEmpty) {
-      return const Center(child: Text("Ajoutez des habits pour voir vos statistiques !"));
-    }
+      if (myWardrobe.isEmpty) return const Center(child: Text("Dressing vide.\nAjoutez votre premier habit !", textAlign: TextAlign.center));
 
-    // Calcul de la répartition par catégorie
-    Map<String, int> counts = {};
-    for (var cloth in myWardrobe) {
-      counts[cloth.mainCategory] = (counts[cloth.mainCategory] ?? 0) + 1;
-    }
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Vue d'ensemble", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 15),
-          Row(
-            children: [
-              Expanded(child: _buildStatCard("Habits", "${myWardrobe.length}", Icons.inventory_2)),
-              Expanded(child: _buildStatCard("Tenues", "${myOutfits.length}", Icons.auto_awesome)),
-            ],
-          ),
-          const SizedBox(height: 30),
-          const Text("Répartition par catégorie", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 15),
-          ...counts.entries.map((entry) {
-            double percent = entry.value / myWardrobe.length;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 15),
+      return GridView.builder(
+        padding: const EdgeInsets.all(15),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15),
+        itemCount: activeCategories.length,
+        itemBuilder: (context, index) {
+          final cat = activeCategories[index];
+          final count = myWardrobe.where((c) => c.mainCategory == cat.name).length;
+          return InkWell(
+            onTap: () => setState(() => _openedCategory = cat.name),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.indigo.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.indigo.withValues(alpha: 0.3)),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w500)),
-                      Text("${(percent * 100).toInt()}% (${entry.value})"),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  LinearProgressIndicator(
-                    value: percent,
-                    backgroundColor: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(10),
-                    minHeight: 10,
-                  ),
+                  const Icon(Icons.folder, size: 60, color: Colors.indigo),
+                  const SizedBox(height: 10),
+                  Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text("$count habits", style: const TextStyle(color: Colors.grey)),
                 ],
               ),
-            );
-          }).toList(),
-          const SizedBox(height: 20),
-          const Divider(),
-          const SizedBox(height: 10),
-          const Center(
-            child: Text("Votre garde-robe grandit ! Continuez ainsi.", 
-            style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+            ),
+          );
+        },
+      );
+    } else {
+      var items = myWardrobe.where((c) => c.mainCategory == _openedCategory).toList();
+      return Column(
+        children: [
+          ListTile(
+            leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _openedCategory = null)),
+            title: Text("Dossier $_openedCategory", style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.75),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(children: [
+                    Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Expanded(child: Image.file(File(item.imagePath), fit: BoxFit.cover)),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        color: Colors.indigo.withValues(alpha: 0.05),
+                        child: Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                      ),
+                    ]),
+                    Positioned(right: 0, child: IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: () {
+                      setState(() {
+                        myWardrobe.removeWhere((c) => c.id == item.id);
+                        if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) _openedCategory = null;
+                      });
+                      _saveData();
+                    })),
+                  ]),
+                );
+              },
+            ),
           ),
         ],
-      ),
-    );
+      );
+    }
   }
 
   // --- LOGIQUE TENUES ---
@@ -268,143 +265,8 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
-  // --- LOGIQUE GARDES-ROBE ---
-
-  void _showImageSourceOptions() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Ajouter un habit", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text("Appareil Photo"),
-                onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text("Galerie Photos"),
-                onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); },
-              ),
-              const SizedBox(height: 10),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    final XFile? file = await _picker.pickImage(source: source, imageQuality: 50);
-    if (file != null) _showAddEntrySheet(File(file.path));
-  }
-
-  void _showAddEntrySheet(File image) {
-    String sCat = myCategories[0].name;
-    String sSub = myCategories[0].subCategories[0];
-    showModalBottomSheet(
-      context: context, 
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 20, 
-              top: 20, left: 20, right: 20
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min, 
-              children: [
-                ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(image, height: 150, width: 150, fit: BoxFit.cover)),
-                const SizedBox(height: 20),
-                DropdownButtonFormField<String>(
-                  value: sCat, 
-                  decoration: const InputDecoration(labelText: "Catégorie", border: OutlineInputBorder()),
-                  items: [...myCategories.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name))), const DropdownMenuItem(value: "NEW", child: Text("+ Créer"))], 
-                  onChanged: (v) => v == "NEW" ? _addNewMainCategory(setModalState) : setModalState(() { sCat = v!; sSub = myCategories.firstWhere((c) => c.name == v).subCategories[0]; })),
-                const SizedBox(height: 15),
-                DropdownButtonFormField<String>(
-                  value: sSub, 
-                  decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder()),
-                  items: [...myCategories.firstWhere((c) => c.name == sCat).subCategories.map((s) => DropdownMenuItem(value: s, child: Text(s))), const DropdownMenuItem(value: "NEW_S", child: Text("+ Créer"))], 
-                  onChanged: (v) => v == "NEW_S" ? _addNewSubCategory(sCat, setModalState) : setModalState(() => sSub = v!)),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                  onPressed: () {
-                    setState(() => myWardrobe.add(Cloth(id: DateTime.now().toString(), imagePath: image.path, mainCategory: sCat, subCategory: sSub)));
-                    _saveData(); Navigator.pop(context);
-                  }, child: const Text("Enregistrer l'habit")),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _addNewMainCategory(Function modalSetState) {
-    TextEditingController c = TextEditingController();
-    showDialog(context: context, builder: (context) => AlertDialog(
-      title: const Text("Nouvelle catégorie"),
-      content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: "Nom (ex: Sport)")),
-      actions: [ElevatedButton(onPressed: () {
-        setState(() => myCategories.add(Category(name: c.text, subCategories: ['Général'])));
-        _saveData(); modalSetState(() {}); Navigator.pop(context);
-      }, child: const Text("Ajouter"))],
-    ));
-  }
-
-  void _addNewSubCategory(String mainCat, Function modalSetState) {
-    TextEditingController c = TextEditingController();
-    showDialog(context: context, builder: (context) => AlertDialog(
-      title: Text("Nouveau type de $mainCat"),
-      content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(hintText: "Nom (ex: Legging)")),
-      actions: [ElevatedButton(onPressed: () {
-        setState(() => myCategories.firstWhere((cat) => cat.name == mainCat).subCategories.add(c.text));
-        _saveData(); modalSetState(() {}); Navigator.pop(context);
-      }, child: const Text("Ajouter"))],
-    ));
-  }
-
-  // --- VUES DES GRILLES ---
-
-  Widget _buildDressingGrid() {
-    if (myWardrobe.isEmpty) return const Center(child: Text("Dressing vide.\nAjoutez votre premier habit !", textAlign: TextAlign.center));
-    return GridView.builder(
-      padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.75),
-      itemCount: myWardrobe.length,
-      itemBuilder: (context, index) {
-        final item = myWardrobe[index];
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: Stack(children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Expanded(child: Image.file(File(item.imagePath), fit: BoxFit.cover)),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-              ),
-            ]),
-            Positioned(right: 0, child: IconButton(icon: const Icon(Icons.remove_circle, color: Colors.red), onPressed: () {
-              setState(() => myWardrobe.removeAt(index)); _saveData();
-            })),
-          ]),
-        );
-      },
-    );
-  }
-
   Widget _buildOutfitsTab() {
-    if (myOutfits.isEmpty) return const Center(child: Text("Aucune tenue.\nCréez votre premier ensemble !"));
+    if (myOutfits.isEmpty) return const Center(child: Text("Aucune tenue.\nCréez votre premier ensemble !", textAlign: TextAlign.center));
     return ListView.builder(
       itemCount: myOutfits.length,
       itemBuilder: (context, index) {
@@ -454,20 +316,172 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
+  // --- LOGIQUE STATS ---
+
+  Widget _buildStatCard(String title, String value, IconData icon) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Icon(icon, size: 30, color: Colors.indigo),
+            const SizedBox(height: 8),
+            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsTab() {
+    if (myWardrobe.isEmpty) return const Center(child: Text("Ajoutez des habits pour voir vos stats !"));
+    
+    Map<String, int> counts = {};
+    for (var cloth in myWardrobe) {
+      counts[cloth.mainCategory] = (counts[cloth.mainCategory] ?? 0) + 1;
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _buildStatCard("Habits", "${myWardrobe.length}", Icons.inventory_2)),
+              Expanded(child: _buildStatCard("Tenues", "${myOutfits.length}", Icons.auto_awesome)),
+            ],
+          ),
+          const SizedBox(height: 30),
+          const Text("Répartition", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 15),
+          ...counts.entries.map((entry) {
+            double percent = entry.value / myWardrobe.length;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(entry.key), Text("${(percent * 100).toInt()}%")]),
+                  const SizedBox(height: 5),
+                  LinearProgressIndicator(value: percent, borderRadius: BorderRadius.circular(10), minHeight: 8),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ),
+    );
+  }
+
+  // --- LOGIQUE AJOUT HABIT ---
+
+  void _showImageSourceOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.camera_alt), title: const Text("Appareil Photo"), onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); }),
+            ListTile(leading: const Icon(Icons.photo_library), title: const Text("Galerie Photos"), onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final XFile? file = await _picker.pickImage(source: source, imageQuality: 50);
+    if (file != null) _showAddEntrySheet(File(file.path));
+  }
+
+  void _showAddEntrySheet(File image) {
+    String sCat = myCategories[0].name;
+    String sSub = myCategories[0].subCategories[0];
+    showModalBottomSheet(
+      context: context, 
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20, top: 20, left: 20, right: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min, 
+              children: [
+                ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(image, height: 150, width: 150, fit: BoxFit.cover)),
+                const SizedBox(height: 20),
+                DropdownButtonFormField<String>(
+                  value: sCat, 
+                  decoration: const InputDecoration(labelText: "Catégorie", border: OutlineInputBorder()),
+                  items: [...myCategories.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name))), const DropdownMenuItem(value: "NEW", child: Text("+ Créer"))], 
+                  onChanged: (v) => v == "NEW" ? _addNewMainCategory(setModalState) : setModalState(() { sCat = v!; sSub = myCategories.firstWhere((c) => c.name == v).subCategories[0]; })),
+                const SizedBox(height: 15),
+                DropdownButtonFormField<String>(
+                  value: sSub, 
+                  decoration: const InputDecoration(labelText: "Type", border: OutlineInputBorder()),
+                  items: [...myCategories.firstWhere((c) => c.name == sCat).subCategories.map((s) => DropdownMenuItem(value: s, child: Text(s))), const DropdownMenuItem(value: "NEW_S", child: Text("+ Créer"))], 
+                  onChanged: (v) => v == "NEW_S" ? _addNewSubCategory(sCat, setModalState) : setModalState(() => sSub = v!)),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                  onPressed: () {
+                    setState(() => myWardrobe.add(Cloth(id: DateTime.now().toString(), imagePath: image.path, mainCategory: sCat, subCategory: sSub)));
+                    _saveData(); Navigator.pop(context);
+                  }, child: const Text("Enregistrer l'habit")),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _addNewMainCategory(Function modalSetState) {
+    TextEditingController c = TextEditingController();
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: const Text("Nouvelle catégorie"),
+      content: TextField(controller: c, autofocus: true),
+      actions: [ElevatedButton(onPressed: () {
+        setState(() => myCategories.add(Category(name: c.text, subCategories: ['Général'])));
+        _saveData(); modalSetState(() {}); Navigator.pop(context);
+      }, child: const Text("Ajouter"))],
+    ));
+  }
+
+  void _addNewSubCategory(String mainCat, Function modalSetState) {
+    TextEditingController c = TextEditingController();
+    showDialog(context: context, builder: (context) => AlertDialog(
+      title: Text("Nouveau type de $mainCat"),
+      content: TextField(controller: c, autofocus: true),
+      actions: [ElevatedButton(onPressed: () {
+        setState(() => myCategories.firstWhere((cat) => cat.name == mainCat).subCategories.add(c.text));
+        _saveData(); modalSetState(() {}); Navigator.pop(context);
+      }, child: const Text("Ajouter"))],
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> _pages = [
-      _buildDressingGrid(),
+      _buildDressingContent(),
       _buildOutfitsTab(),
-      _buildStatsTab(), // NOUVEL ONGLET
+      _buildStatsTab(),
     ];
 
     return Scaffold(
       appBar: AppBar(title: const Text('My Dressing'), centerTitle: true),
-      body: _pages[_selectedIndex],
+      body: SafeArea(child: _pages[_selectedIndex]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) => setState(() {
+          _selectedIndex = index;
+          _openedCategory = null; 
+        }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.checkroom_outlined), selectedIcon: Icon(Icons.checkroom), label: 'Dressing'),
           NavigationDestination(icon: Icon(Icons.style_outlined), selectedIcon: Icon(Icons.style), label: 'Tenues'),
