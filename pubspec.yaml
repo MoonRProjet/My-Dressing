@@ -38,6 +38,8 @@ dependencies:
   image_picker: ^1.2.2
   shared_preferences: ^2.5.5
   palette_generator: ^0.3.3+7
+  screenshot: ^3.0.0
+  gal: ^2.3.2
 
 dev_dependencies:
   flutter_test:

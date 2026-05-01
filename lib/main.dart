@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:palette_generator/palette_generator.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:gal/gal.dart';
 
 void main() => runApp(const WardrobeApp());
 
@@ -13,16 +16,18 @@ void main() => runApp(const WardrobeApp());
 class Category {
   String name;
   List<String> subCategories;
+
   Category({required this.name, required this.subCategories});
 
   Map<String, dynamic> toJson() => {
-    'name': name,
-    'subCategories': subCategories,
-  };
+        'name': name,
+        'subCategories': subCategories,
+      };
+
   factory Category.fromJson(Map<String, dynamic> json) => Category(
-    name: json['name'],
-    subCategories: List<String>.from(json['subCategories']),
-  );
+        name: json['name'],
+        subCategories: List<String>.from(json['subCategories']),
+      );
 }
 
 class Cloth {
@@ -43,22 +48,22 @@ class Cloth {
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'imagePath': imagePath,
-    'mainCategory': mainCategory,
-    'subCategory': subCategory,
-    'brand': brand,
-    'colorValue': colorValue,
-  };
+        'id': id,
+        'imagePath': imagePath,
+        'mainCategory': mainCategory,
+        'subCategory': subCategory,
+        'brand': brand,
+        'colorValue': colorValue,
+      };
 
   factory Cloth.fromJson(Map<String, dynamic> json) => Cloth(
-    id: json['id'],
-    imagePath: json['imagePath'],
-    mainCategory: json['mainCategory'],
-    subCategory: json['subCategory'],
-    brand: json['brand'] ?? "",
-    colorValue: json['colorValue'] ?? 0,
-  );
+        id: json['id'],
+        imagePath: json['imagePath'],
+        mainCategory: json['mainCategory'],
+        subCategory: json['subCategory'],
+        brand: json['brand'] ?? "",
+        colorValue: json['colorValue'] ?? 0,
+      );
 }
 
 class ClothPosition {
@@ -66,6 +71,7 @@ class ClothPosition {
   double x;
   double y;
   double scale;
+
   ClothPosition({
     required this.clothId,
     this.x = 50.0,
@@ -74,17 +80,18 @@ class ClothPosition {
   });
 
   Map<String, dynamic> toJson() => {
-    'clothId': clothId,
-    'x': x,
-    'y': y,
-    'scale': scale,
-  };
+        'clothId': clothId,
+        'x': x,
+        'y': y,
+        'scale': scale,
+      };
+
   factory ClothPosition.fromJson(Map<String, dynamic> json) => ClothPosition(
-    clothId: json['clothId'],
-    x: json['x'].toDouble(),
-    y: json['y'].toDouble(),
-    scale: json['scale'].toDouble(),
-  );
+        clothId: json['clothId'],
+        x: json['x'].toDouble(),
+        y: json['y'].toDouble(),
+        scale: json['scale'].toDouble(),
+      );
 }
 
 class Outfit {
@@ -92,6 +99,7 @@ class Outfit {
   String name;
   List<ClothPosition> clothesPositions;
   bool isFavorite;
+
   Outfit({
     required this.id,
     required this.name,
@@ -100,25 +108,26 @@ class Outfit {
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'clothesPositions': clothesPositions.map((e) => e.toJson()).toList(),
-    'isFavorite': isFavorite,
-  };
+        'id': id,
+        'name': name,
+        'clothesPositions': clothesPositions.map((e) => e.toJson()).toList(),
+        'isFavorite': isFavorite,
+      };
 
   factory Outfit.fromJson(Map<String, dynamic> json) => Outfit(
-    id: json['id'],
-    name: json['name'],
-    clothesPositions: (json['clothesPositions'] as List)
-        .map((e) => ClothPosition.fromJson(e))
-        .toList(),
-    isFavorite: json['isFavorite'] ?? false,
-  );
+        id: json['id'],
+        name: json['name'],
+        clothesPositions: (json['clothesPositions'] as List)
+            .map((e) => ClothPosition.fromJson(e))
+            .toList(),
+        isFavorite: json['isFavorite'] ?? false,
+      );
 }
 
 // --- APPLICATION ---
 class WardrobeApp extends StatelessWidget {
   const WardrobeApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -131,6 +140,7 @@ class WardrobeApp extends StatelessWidget {
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
+
   @override
   State<MainNavigation> createState() => _MainNavigationState();
 }
@@ -141,16 +151,15 @@ class _MainNavigationState extends State<MainNavigation> {
   String _searchQuery = "";
   String? _selectedSubFilter;
   String? _selectedFamilyFilter;
+  
   final ImagePicker _picker = ImagePicker();
+  final ScreenshotController _screenshotController = ScreenshotController();
 
   List<Cloth> myWardrobe = [];
   List<Outfit> myOutfits = [];
   List<Category> myCategories = [
     Category(name: 'Haut', subCategories: ['T-shirt', 'Pull', 'Chemise']),
-    Category(
-      name: 'Bas',
-      subCategories: ['Jean', 'Pantalon', 'Short', 'Jogging'],
-    ),
+    Category(name: 'Bas', subCategories: ['Jean', 'Pantalon', 'Short', 'Jogging']),
     Category(name: 'Chaussures', subCategories: ['Baskets', 'Ville']),
   ];
 
@@ -163,38 +172,28 @@ class _MainNavigationState extends State<MainNavigation> {
   // --- PERSISTENCE ---
   Future<void> _saveData() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'wardrobe',
-      jsonEncode(myWardrobe.map((e) => e.toJson()).toList()),
-    );
-    await prefs.setString(
-      'categories',
-      jsonEncode(myCategories.map((e) => e.toJson()).toList()),
-    );
-    await prefs.setString(
-      'outfits',
-      jsonEncode(myOutfits.map((e) => e.toJson()).toList()),
-    );
+    await prefs.setString('wardrobe', jsonEncode(myWardrobe.map((e) => e.toJson()).toList()));
+    await prefs.setString('categories', jsonEncode(myCategories.map((e) => e.toJson()).toList()));
+    await prefs.setString('outfits', jsonEncode(myOutfits.map((e) => e.toJson()).toList()));
   }
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       String? wS = prefs.getString('wardrobe');
-      if (wS != null)
-        myWardrobe = List<Cloth>.from(
-          jsonDecode(wS).map((m) => Cloth.fromJson(m)),
-        );
+      if (wS != null) {
+        myWardrobe = List<Cloth>.from(jsonDecode(wS).map((m) => Cloth.fromJson(m)));
+      }
+      
       String? cS = prefs.getString('categories');
-      if (cS != null)
-        myCategories = List<Category>.from(
-          jsonDecode(cS).map((m) => Category.fromJson(m)),
-        );
+      if (cS != null) {
+        myCategories = List<Category>.from(jsonDecode(cS).map((m) => Category.fromJson(m)));
+      }
+      
       String? oS = prefs.getString('outfits');
-      if (oS != null)
-        myOutfits = List<Outfit>.from(
-          jsonDecode(oS).map((m) => Outfit.fromJson(m)),
-        );
+      if (oS != null) {
+        myOutfits = List<Outfit>.from(jsonDecode(oS).map((m) => Outfit.fromJson(m)));
+      }
     });
   }
 
@@ -202,25 +201,24 @@ class _MainNavigationState extends State<MainNavigation> {
   Future<Uint8List?> _removeBackground(File imageFile) async {
     const String apiKey = "f7a127bc67msh305c85913d9ffecp16cd53jsn7942f8ca8270";
     const String apiHost = "remove-background18.p.rapidapi.com";
-    const String apiUrl =
-        "https://remove-background18.p.rapidapi.com/public/remove-background/file";
+    const String apiUrl = "https://remove-background18.p.rapidapi.com/public/remove-background/file";
+    
     try {
       var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
-      request.headers.addAll({
-        'x-rapidapi-key': apiKey,
-        'x-rapidapi-host': apiHost,
-      });
-      request.files.add(
-        await http.MultipartFile.fromPath('file', imageFile.path),
-      );
+      request.headers.addAll({'x-rapidapi-key': apiKey, 'x-rapidapi-host': apiHost});
+      request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+      
       var response = await request.send();
       var responseString = await response.stream.bytesToString();
+      
       if (response.statusCode == 200) {
         var jsonResponse = jsonDecode(responseString);
         String? imageUrl = jsonResponse['url'];
         if (imageUrl != null) {
           var imageResponse = await http.get(Uri.parse(imageUrl));
-          if (imageResponse.statusCode == 200) return imageResponse.bodyBytes;
+          if (imageResponse.statusCode == 200) {
+            return imageResponse.bodyBytes;
+          }
         }
       }
     } catch (e) {
@@ -231,14 +229,11 @@ class _MainNavigationState extends State<MainNavigation> {
 
   Future<Color> _extractColor(File imageFile) async {
     try {
-      final PaletteGenerator paletteGenerator =
-          await PaletteGenerator.fromImageProvider(
-            FileImage(imageFile),
-            maximumColorCount: 10,
-          );
-      return paletteGenerator.dominantColor?.color ??
-          paletteGenerator.vibrantColor?.color ??
-          Colors.white;
+      final PaletteGenerator paletteGenerator = await PaletteGenerator.fromImageProvider(
+        FileImage(imageFile), 
+        maximumColorCount: 10
+      );
+      return paletteGenerator.dominantColor?.color ?? paletteGenerator.vibrantColor?.color ?? Colors.white;
     } catch (e) {
       return Colors.white;
     }
@@ -247,13 +242,11 @@ class _MainNavigationState extends State<MainNavigation> {
   // --- LOGIQUE DE FAMILLE DE COULEUR (HSL) ---
   String _getColorFamily(Color color) {
     final hsl = HSLColor.fromColor(color);
-
-    // Détection Achromatique affinée
+    
     if (hsl.lightness < 0.12) return "Noir";
     if (hsl.lightness > 0.90) return "Blanc";
     if (hsl.saturation < 0.15) return "Gris";
 
-    // Détection par Teinte (Hue)
     double hue = hsl.hue;
     if (hue >= 345 || hue < 15) return "Rouge";
     if (hue >= 15 && hue < 45) return "Orange/Marron";
@@ -266,1100 +259,1017 @@ class _MainNavigationState extends State<MainNavigation> {
     return "Gris";
   }
 
-  // Retourne la couleur représentative pour l'icône du filtre
   Color _getFamilyDisplayColor(String family) {
     switch (family) {
-      case "Noir":
-        return Colors.black;
-      case "Blanc":
-        return Colors.white;
-      case "Gris":
-        return Colors.grey;
-      case "Rouge":
-        return Colors.red;
-      case "Orange/Marron":
-        return Colors.orange;
-      case "Jaune":
-        return Colors.yellow;
-      case "Vert":
-        return Colors.green;
-      case "Bleu":
-        return Colors.blue;
-      case "Violet":
-        return Colors.purple;
-      case "Rose":
-        return Colors.pink;
-      default:
-        return Colors.grey;
+      case "Noir": return Colors.black;
+      case "Blanc": return Colors.white;
+      case "Gris": return Colors.grey;
+      case "Rouge": return Colors.red;
+      case "Orange/Marron": return Colors.orange;
+      case "Jaune": return Colors.yellow;
+      case "Vert": return Colors.green;
+      case "Bleu": return Colors.blue;
+      case "Violet": return Colors.purple;
+      case "Rose": return Colors.pink;
+      default: return Colors.grey;
     }
   }
 
   // --- UI COMPONENTS ---
-
   Widget _buildCanvas(
     List<ClothPosition> positions, {
-    bool interactive = true,
-    Function? onUpdate,
-    String? selectedClothId,
-    Function(String)? onSelect,
+    bool interactive = true, 
+    Function? onUpdate, 
+    String? selectedClothId, 
+    Function(String)? onSelect
   }) {
     return Stack(
       children: positions.map((pos) {
         final cloth = myWardrobe.firstWhere(
-          (c) => c.id == pos.clothId,
-          orElse: () =>
-              Cloth(id: '', imagePath: '', mainCategory: '', subCategory: ''),
+          (c) => c.id == pos.clothId, 
+          orElse: () => Cloth(id: '', imagePath: '', mainCategory: '', subCategory: '')
         );
-        if (cloth.id.isEmpty) return const SizedBox();
+        
+        if (cloth.id.isEmpty) {
+          return const SizedBox();
+        }
+        
         bool isSelected = pos.clothId == selectedClothId;
+        
         return Positioned(
-          left: pos.x,
-          top: pos.y,
+          left: pos.x, 
+          top: pos.y, 
           child: GestureDetector(
-            onTap: interactive
-                ? () {
-                    positions.remove(pos);
-                    positions.add(pos);
-                    if (onSelect != null) onSelect(pos.clothId);
-                    if (onUpdate != null) onUpdate();
-                  }
-                : null,
-            onPanUpdate: interactive
-                ? (details) {
-                    pos.x += details.delta.dx;
-                    pos.y += details.delta.dy;
-                    if (onSelect != null && !isSelected) onSelect(pos.clothId);
-                    if (onUpdate != null) onUpdate();
-                  }
-                : null,
-            onLongPress: interactive
-                ? () {
-                    positions.remove(pos);
-                    if (onSelect != null && isSelected) onSelect('');
-                    if (onUpdate != null) onUpdate();
-                  }
-                : null,
+            onTap: interactive ? () { 
+              positions.remove(pos); 
+              positions.add(pos); 
+              if (onSelect != null) {
+                onSelect(pos.clothId); 
+              }
+              if (onUpdate != null) {
+                onUpdate();
+              }
+            } : null,
+            onPanUpdate: interactive ? (details) { 
+              pos.x += details.delta.dx; 
+              pos.y += details.delta.dy; 
+              if (onSelect != null && !isSelected) {
+                onSelect(pos.clothId); 
+              }
+              if (onUpdate != null) {
+                onUpdate(); 
+              }
+            } : null,
+            onLongPress: interactive ? () { 
+              positions.remove(pos); 
+              if (onSelect != null && isSelected) {
+                onSelect(''); 
+              }
+              if (onUpdate != null) {
+                onUpdate(); 
+              }
+            } : null,
             child: Transform.scale(
-              scale: pos.scale,
+              scale: pos.scale, 
               child: Container(
-                width: 150,
-                height: 150,
-                decoration: interactive && isSelected
-                    ? BoxDecoration(
-                        border: Border.all(color: Colors.indigo, width: 2),
-                      )
-                    : null,
-                child: Image.file(File(cloth.imagePath), fit: BoxFit.contain),
-              ),
+                width: 150, 
+                height: 150, 
+                decoration: interactive && isSelected 
+                  ? BoxDecoration(border: Border.all(color: Colors.indigo, width: 2)) 
+                  : null, 
+                child: Image.file(File(cloth.imagePath), fit: BoxFit.contain)
+              )
             ),
-          ),
+          )
         );
-      }).toList(),
+      }).toList()
     );
   }
 
+  // ==========================================
+  // --- VUE LOOKBOOK (VISUALISATION + EXPORT) ---
+  // ==========================================
   void _viewOutfit(Outfit outfit) {
     showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
+      context: context, 
+      isScrollControlled: true, 
+      backgroundColor: Colors.white, 
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))), 
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        padding: const EdgeInsets.all(20),
+        height: MediaQuery.of(context).size.height * 0.85, 
+        padding: const EdgeInsets.all(20), 
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween, 
               children: [
-                Text(
-                  outfit.name,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit_note, size: 30),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _openOutfitEditor(existingOutfit: outfit);
-                  },
-                ),
-              ],
-            ),
-            const Divider(),
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: _buildCanvas(
-                  outfit.clothesPositions,
-                  interactive: false,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Fermer"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openOutfitEditor({Outfit? existingOutfit}) {
-    TextEditingController nameController = TextEditingController(
-      text: existingOutfit?.name ?? "",
-    );
-    List<ClothPosition> currentPositions = existingOutfit != null
-        ? List.from(
-            existingOutfit.clothesPositions.map(
-              (p) => ClothPosition(
-                clothId: p.clothId,
-                x: p.x,
-                y: p.y,
-                scale: p.scale,
-              ),
-            ),
-          )
-        : [];
-    String activeClothId = "";
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          ClothPosition? activePos;
-          try {
-            activePos = currentPositions.firstWhere(
-              (p) => p.clothId == activeClothId,
-            );
-          } catch (e) {
-            activePos = null;
-          }
-          return Container(
-            height: MediaQuery.of(context).size.height * 0.9,
-            padding: const EdgeInsets.all(15),
-            child: Column(
-              children: [
+                Expanded(
+                  child: Text(
+                    outfit.name, 
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  )
+                ), 
                 Row(
                   children: [
+                    // BOUTON EXPORT DIRECTEMENT DANS LA VUE
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.red),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: "Nom du look",
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.check,
-                        color: Colors.green,
-                        size: 30,
-                      ),
-                      onPressed: () {
-                        if (nameController.text.isNotEmpty &&
-                            currentPositions.isNotEmpty) {
-                          setState(() {
-                            if (existingOutfit != null) {
-                              existingOutfit.name = nameController.text;
-                              existingOutfit.clothesPositions =
-                                  currentPositions;
-                            } else {
-                              myOutfits.add(
-                                Outfit(
-                                  id: DateTime.now().toString(),
-                                  name: nameController.text,
-                                  clothesPositions: currentPositions,
-                                ),
-                              );
-                            }
-                          });
-                          _saveData();
-                          Navigator.pop(context);
+                      icon: const Icon(Icons.download_for_offline, color: Colors.blue, size: 30),
+                      tooltip: "Enregistrer l'image",
+                      onPressed: () async {
+                        final image = await _screenshotController.capture(); 
+                        if (image != null) {
+                          final directory = Directory.systemTemp;
+                          final path = '${directory.path}/outfit_${DateTime.now().millisecondsSinceEpoch}.png';
+                          final file = await File(path).writeAsBytes(image);
+                          
+                          await Gal.putImage(file.path); 
+                          
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Tenue enregistrée dans la galerie !"))
+                          );
                         }
                       },
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_note, size: 30), 
+                      tooltip: "Modifier",
+                      onPressed: () { 
+                        Navigator.pop(context); 
+                        _openOutfitEditor(existingOutfit: outfit); 
+                      }
+                    )
                   ],
-                ),
-                const Text(
-                  "Toucher un habit pour le régler | Appui long pour supprimer",
-                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setModalState(() => activeClothId = ""),
+                )
+              ]
+            ), 
+            const Divider(), 
+            // CANEVAS ENVELOPPÉ POUR LA CAPTURE
+            Expanded(
+              child: Container(
+                width: double.infinity, 
+                decoration: BoxDecoration(
+                  color: Colors.white, 
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.grey.shade200)
+                ), 
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Screenshot(
+                    controller: _screenshotController,
                     child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 10),
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: _buildCanvas(
-                          currentPositions,
-                          onUpdate: () => setModalState(() {}),
-                          selectedClothId: activeClothId,
-                          onSelect: (id) =>
-                              setModalState(() => activeClothId = id),
-                        ),
-                      ),
+                      color: Colors.white, // Fond propre pour l'image exportée
+                      child: _buildCanvas(outfit.clothesPositions, interactive: false)
                     ),
                   ),
-                ),
-                if (activePos != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.zoom_out, size: 20),
-                        Expanded(
-                          child: Slider(
-                            value: activePos.scale,
-                            min: 0.3,
-                            max: 3.0,
-                            onChanged: (value) =>
-                                setModalState(() => activePos!.scale = value),
-                          ),
-                        ),
-                        const Icon(Icons.zoom_in, size: 20),
-                      ],
-                    ),
+                )
+              )
+            ), 
+            const SizedBox(height: 10), 
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text("Fermer")
+            )
+          ]
+        )
+      )
+    );
+  }
+
+  // --- ÉDITEUR (AVEC GÉNÉRATION ET EXPORT) ---
+  void _openOutfitEditor({Outfit? existingOutfit}) {
+    TextEditingController nameController = TextEditingController(text: existingOutfit?.name ?? "");
+    List<ClothPosition> currentPositions = existingOutfit != null 
+        ? List.from(existingOutfit.clothesPositions.map((p) => ClothPosition(clothId: p.clothId, x: p.x, y: p.y, scale: p.scale))) 
+        : [];
+    String activeClothId = "";
+
+    showModalBottomSheet(
+      context: context, 
+      isScrollControlled: true, 
+      isDismissible: false, 
+      enableDrag: false, 
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))), 
+      builder: (context) => StatefulBuilder(builder: (context, setModalState) {
+        
+        ClothPosition? activePos; 
+        try { 
+          activePos = currentPositions.firstWhere((p) => p.clothId == activeClothId); 
+        } catch (e) { 
+          activePos = null; 
+        }
+
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.9, 
+          padding: const EdgeInsets.all(15), 
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.red), 
+                    onPressed: () => Navigator.pop(context)
                   ),
-                if (activePos == null) const SizedBox(height: 48),
-                SizedBox(
-                  height: 80,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: myWardrobe.length,
-                    itemBuilder: (context, index) {
-                      final item = myWardrobe[index];
-                      return GestureDetector(
-                        onTap: () => setModalState(() {
-                          currentPositions.add(ClothPosition(clothId: item.id));
-                          activeClothId = item.id;
-                        }),
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              File(item.imagePath),
-                              width: 60,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
-                      );
+                  Expanded(
+                    child: TextField(
+                      controller: nameController, 
+                      decoration: const InputDecoration(labelText: "Nom du look")
+                    )
+                  ),
+                  
+                  // BOUTON MAGIQUE
+                  IconButton(
+                    icon: const Icon(Icons.auto_awesome, color: Colors.amber),
+                    tooltip: "Look aléatoire",
+                    onPressed: () {
+                      final random = Random(); 
+                      List<ClothPosition> generated = [];
+                      
+                      void pick(String cat, double x, double y, double s) {
+                        var items = myWardrobe.where((c) => c.mainCategory == cat).toList();
+                        if (items.isNotEmpty) {
+                          generated.add(ClothPosition(clothId: items[random.nextInt(items.length)].id, x: x, y: y, scale: s));
+                        }
+                      }
+                      
+                      pick('Haut', 100.0, 20.0, 1.2); 
+                      pick('Bas', 100.0, 180.0, 1.2); 
+                      pick('Chaussures', 100.0, 350.0, 0.9);
+                      
+                      if (generated.isNotEmpty) {
+                        setModalState(() { 
+                          currentPositions.clear(); 
+                          currentPositions.addAll(generated); 
+                          activeClothId = ""; 
+                        });
+                      }
                     },
                   ),
+
+                  // BOUTON EXPORT
+                  IconButton(
+                    icon: const Icon(Icons.download_for_offline, color: Colors.blue, size: 30),
+                    tooltip: "Enregistrer l'image",
+                    onPressed: () async {
+                      if (currentPositions.isEmpty) {
+                        return;
+                      }
+                      
+                      setModalState(() => activeClothId = ""); 
+                      
+                      final image = await _screenshotController.capture(); 
+                      if (image != null) {
+                        final directory = Directory.systemTemp;
+                        final path = '${directory.path}/outfit_${DateTime.now().millisecondsSinceEpoch}.png';
+                        final file = await File(path).writeAsBytes(image);
+                        
+                        await Gal.putImage(file.path); 
+                        
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Tenue enregistrée dans la galerie !"))
+                        );
+                      }
+                    },
+                  ),
+
+                  // BOUTON VALIDATION
+                  IconButton(
+                    icon: const Icon(Icons.check, color: Colors.green, size: 30),
+                    onPressed: () {
+                      if (nameController.text.isNotEmpty && currentPositions.isNotEmpty) {
+                        setState(() {
+                          if (existingOutfit != null) { 
+                            existingOutfit.name = nameController.text; 
+                            existingOutfit.clothesPositions = currentPositions; 
+                          } else { 
+                            myOutfits.add(Outfit(id: DateTime.now().toString(), name: nameController.text, clothesPositions: currentPositions)); 
+                          }
+                        });
+                        _saveData(); 
+                        Navigator.pop(context);
+                      }
+                    },
+                  )
+                ]
+              ),
+              const Text(
+                "Toucher un habit pour le régler | Appui long pour supprimer", 
+                style: TextStyle(fontSize: 10, color: Colors.grey)
+              ),
+              
+              // CANEVAS
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setModalState(() => activeClothId = ""),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 10), 
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white, 
+                      borderRadius: BorderRadius.circular(20), 
+                      border: Border.all(color: Colors.grey.shade200)
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Screenshot(
+                        controller: _screenshotController,
+                        child: Container(
+                          color: Colors.white, 
+                          child: _buildCanvas(
+                            currentPositions, 
+                            onUpdate: () => setModalState(() {}), 
+                            selectedClothId: activeClothId, 
+                            onSelect: (id) => setModalState(() => activeClothId = id)
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+              
+              // SLIDER
+              if (activePos != null) 
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10), 
+                  child: Row(
+                    children: [
+                      const Icon(Icons.zoom_out, size: 20), 
+                      Expanded(
+                        child: Slider(
+                          value: activePos.scale, 
+                          min: 0.3, 
+                          max: 3.0, 
+                          onChanged: (v) => setModalState(() => activePos!.scale = v)
+                        )
+                      ), 
+                      const Icon(Icons.zoom_in, size: 20)
+                    ]
+                  )
+                ),
+              
+              if (activePos == null) 
+                const SizedBox(height: 48),
+                
+              // LISTE DES VETEMENTS EN BAS
+              SizedBox(
+                height: 80, 
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal, 
+                  itemCount: myWardrobe.length, 
+                  itemBuilder: (context, index) { 
+                    final item = myWardrobe[index]; 
+                    return GestureDetector(
+                      onTap: () => setModalState(() { 
+                        currentPositions.add(ClothPosition(clothId: item.id)); 
+                        activeClothId = item.id; 
+                      }), 
+                      child: Padding(
+                        padding: const EdgeInsets.all(4), 
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8), 
+                          child: Image.file(File(item.imagePath), width: 60, fit: BoxFit.cover)
+                        )
+                      )
+                    ); 
+                  }
+                )
+              ),
+            ]
+          ),
+        );
+      }),
     );
   }
 
+  // --- ONGLET TENUES ---
   Widget _buildOutfitsTab() {
-    if (myOutfits.isEmpty) return const Center(child: Text("Aucun montage."));
-    List<Outfit> sorted = List.from(myOutfits)
-      ..sort((a, b) => b.isFavorite ? 1 : -1);
+    if (myOutfits.isEmpty) {
+      return const Center(child: Text("Aucun montage."));
+    }
+    
+    List<Outfit> sorted = List.from(myOutfits)..sort((a, b) => b.isFavorite ? 1 : -1);
+    
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: sorted.length,
-      itemBuilder: (context, index) {
-        final outfit = sorted[index];
+      padding: const EdgeInsets.all(12), 
+      itemCount: sorted.length, 
+      itemBuilder: (context, index) { 
+        final outfit = sorted[index]; 
         return Container(
-          margin: const EdgeInsets.only(bottom: 15),
+          margin: const EdgeInsets.only(bottom: 15), 
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: outfit.isFavorite
-                ? [
-                    BoxShadow(
-                      color: Colors.amber.withValues(alpha: 0.3),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : [],
-          ),
+            borderRadius: BorderRadius.circular(20), 
+            boxShadow: outfit.isFavorite 
+              ? [BoxShadow(color: Colors.amber.withValues(alpha: 0.3), blurRadius: 10, spreadRadius: 2)] 
+              : []
+          ), 
           child: Card(
-            elevation: outfit.isFavorite ? 5 : 1,
+            elevation: outfit.isFavorite ? 5 : 1, 
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
-              side: BorderSide(
-                color: outfit.isFavorite ? Colors.amber : Colors.transparent,
-                width: 2,
-              ),
-            ),
+              borderRadius: BorderRadius.circular(15), 
+              side: BorderSide(color: outfit.isFavorite ? Colors.amber : Colors.transparent, width: 2)
+            ), 
             child: InkWell(
-              borderRadius: BorderRadius.circular(15),
-              onTap: () => _viewOutfit(outfit),
+              borderRadius: BorderRadius.circular(15), 
+              onTap: () => _viewOutfit(outfit), 
               child: Padding(
-                padding: const EdgeInsets.all(15),
+                padding: const EdgeInsets.all(15), 
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start, 
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween, 
                       children: [
                         Row(
                           children: [
-                            if (outfit.isFavorite)
-                              const Icon(
-                                Icons.stars,
-                                color: Colors.amber,
-                                size: 20,
-                              ),
-                            const SizedBox(width: 5),
-                            Text(
-                              outfit.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 17,
-                              ),
-                            ),
-                          ],
-                        ),
+                            if (outfit.isFavorite) 
+                              const Icon(Icons.stars, color: Colors.amber, size: 20), 
+                            const SizedBox(width: 5), 
+                            Text(outfit.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17))
+                          ]
+                        ), 
                         Row(
                           children: [
                             IconButton(
-                              icon: Icon(
-                                outfit.isFavorite
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                color: outfit.isFavorite
-                                    ? Colors.red
-                                    : Colors.grey,
-                              ),
-                              onPressed: () {
-                                setState(
-                                  () => outfit.isFavorite = !outfit.isFavorite,
-                                );
-                                _saveData();
-                              },
-                            ),
+                              icon: Icon(outfit.isFavorite ? Icons.favorite : Icons.favorite_border, color: outfit.isFavorite ? Colors.red : Colors.grey), 
+                              onPressed: () { 
+                                setState(() => outfit.isFavorite = !outfit.isFavorite); 
+                                _saveData(); 
+                              }
+                            ), 
                             IconButton(
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                color: Colors.red,
-                              ),
-                              onPressed: () {
-                                setState(
-                                  () => myOutfits.removeWhere(
-                                    (o) => o.id == outfit.id,
-                                  ),
-                                );
-                                _saveData();
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
+                              icon: const Icon(Icons.delete_outline, color: Colors.red), 
+                              onPressed: () { 
+                                setState(() => myOutfits.removeWhere((o) => o.id == outfit.id)); 
+                                _saveData(); 
+                              }
+                            )
+                          ]
+                        )
+                      ]
+                    ), 
+                    const SizedBox(height: 10), 
                     SizedBox(
-                      height: 100,
+                      height: 100, 
                       child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: outfit.clothesPositions.length,
-                        itemBuilder: (context, cIdx) {
-                          final clothId = outfit.clothesPositions[cIdx].clothId;
+                        scrollDirection: Axis.horizontal, 
+                        itemCount: outfit.clothesPositions.length, 
+                        itemBuilder: (context, cIdx) { 
+                          final clothId = outfit.clothesPositions[cIdx].clothId; 
                           final cloth = myWardrobe.firstWhere(
-                            (c) => c.id == clothId,
-                            orElse: () => Cloth(
-                              id: '',
-                              imagePath: '',
-                              mainCategory: '',
-                              subCategory: '',
-                            ),
-                          );
-                          if (cloth.imagePath.isEmpty) return const SizedBox();
+                            (c) => c.id == clothId, 
+                            orElse: () => Cloth(id: '', imagePath: '', mainCategory: '', subCategory: '')
+                          ); 
+                          
+                          if (cloth.imagePath.isEmpty) {
+                            return const SizedBox();
+                          }
+                          
                           return Padding(
-                            padding: const EdgeInsets.only(right: 10),
+                            padding: const EdgeInsets.only(right: 10), 
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(
-                                File(cloth.imagePath),
-                                width: 80,
-                                height: 100,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+                              borderRadius: BorderRadius.circular(12), 
+                              child: Image.file(File(cloth.imagePath), width: 80, height: 100, fit: BoxFit.cover)
+                            )
+                          ); 
+                        }
+                      )
+                    )
+                  ]
+                )
+              )
+            )
+          )
+        ); 
+      }
     );
   }
 
-  Widget _buildStatsTab() {
-    if (myWardrobe.isEmpty)
+  // --- ONGLET STATS ---
+  Widget _buildStatCard(String title, String value, IconData icon) { 
+    return Card(
+      elevation: 2, 
+      child: Padding(
+        padding: const EdgeInsets.all(16.0), 
+        child: Column(
+          children: [
+            Icon(icon, size: 30, color: Colors.indigo), 
+            const SizedBox(height: 8), 
+            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), 
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12))
+          ]
+        )
+      )
+    ); 
+  }
+
+  Widget _buildStatsTab() { 
+    if (myWardrobe.isEmpty) {
       return const Center(child: Text("Ajoutez des habits !"));
-    Map<String, int> counts = {};
-    for (var cloth in myWardrobe) {
-      counts[cloth.mainCategory] = (counts[cloth.mainCategory] ?? 0) + 1;
     }
+    
+    Map<String, int> counts = {}; 
+    for (var cloth in myWardrobe) { 
+      counts[cloth.mainCategory] = (counts[cloth.mainCategory] ?? 0) + 1; 
+    } 
+    
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(20), 
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start, 
         children: [
           Row(
             children: [
-              Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.inventory_2),
-                        Text(
-                          "${myWardrobe.length}",
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Text("Habits"),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        const Icon(Icons.auto_awesome),
-                        Text(
-                          "${myOutfits.length}",
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Text("Tenues"),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 30),
-          ...counts.entries.map((entry) {
-            double percent = entry.value / myWardrobe.length;
+              Expanded(child: _buildStatCard("Habits", "${myWardrobe.length}", Icons.inventory_2)), 
+              Expanded(child: _buildStatCard("Tenues", "${myOutfits.length}", Icons.auto_awesome))
+            ]
+          ), 
+          const SizedBox(height: 30), 
+          const Text("Répartition", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), 
+          const SizedBox(height: 15), 
+          ...counts.entries.map((entry) { 
+            double percent = entry.value / myWardrobe.length; 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 15),
+              padding: const EdgeInsets.only(bottom: 15), 
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start, 
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween, 
                     children: [
-                      Text(entry.key),
-                      Text("${(percent * 100).toInt()}%"),
-                    ],
-                  ),
-                  LinearProgressIndicator(
-                    value: percent,
-                    borderRadius: BorderRadius.circular(10),
-                    minHeight: 8,
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
-    );
+                      Text(entry.key), 
+                      Text("${(percent * 100).toInt()}%")
+                    ]
+                  ), 
+                  const SizedBox(height: 5), 
+                  LinearProgressIndicator(value: percent, borderRadius: BorderRadius.circular(10), minHeight: 8)
+                ]
+              )
+            ); 
+          })
+        ]
+      )
+    ); 
   }
 
-  // --- DRESSING CONTENT DYNAMIQUE ---
+  // --- ONGLET DRESSING ---
   Widget _buildDressingContent() {
     if (_openedCategory == null) {
-      var activeCategories = myCategories
-          .where(
-            (cat) => myWardrobe.any((cloth) => cloth.mainCategory == cat.name),
-          )
-          .toList();
+      var activeCategories = myCategories.where((cat) {
+        return myWardrobe.any((cloth) => cloth.mainCategory == cat.name);
+      }).toList();
+      
+      if (myWardrobe.isEmpty) {
+        return const Center(child: Text("Dressing vide."));
+      }
+      
       return GridView.builder(
-        padding: const EdgeInsets.all(15),
+        padding: const EdgeInsets.all(15), 
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-        ),
-        itemCount: activeCategories.length,
-        itemBuilder: (context, index) {
-          final cat = activeCategories[index];
-          final count = myWardrobe
-              .where((c) => c.mainCategory == cat.name)
-              .length;
+          crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15
+        ), 
+        itemCount: activeCategories.length, 
+        itemBuilder: (context, index) { 
+          final cat = activeCategories[index]; 
+          final count = myWardrobe.where((c) => c.mainCategory == cat.name).length; 
+          
           return InkWell(
-            onTap: () => setState(() {
-              _openedCategory = cat.name;
-              _searchQuery = "";
-              _selectedSubFilter = null;
-              _selectedFamilyFilter = null;
-            }),
+            onTap: () => setState(() { 
+              _openedCategory = cat.name; 
+              _searchQuery = ""; 
+              _selectedSubFilter = null; 
+              _selectedFamilyFilter = null; 
+            }), 
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.indigo.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
+                color: Colors.indigo.withValues(alpha: 0.1), 
+                borderRadius: BorderRadius.circular(20)
+              ), 
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.center, 
                 children: [
-                  const Icon(Icons.folder, size: 60),
-                  Text(
-                    cat.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text("$count habits"),
-                ],
-              ),
-            ),
-          );
-        },
+                  const Icon(Icons.folder, size: 60, color: Colors.indigo), 
+                  const SizedBox(height: 10),
+                  Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)), 
+                  Text("$count habits")
+                ]
+              )
+            )
+          ); 
+        }
       );
     } else {
-      // Filtrage initial
-      var itemsInCategory = myWardrobe
-          .where((c) => c.mainCategory == _openedCategory)
-          .toList();
-
-      // Calcul des familles de couleurs PRÉSENTES dans cette catégorie[cite: 1]
-      var presentFamilies = itemsInCategory
-          .map((c) => _getColorFamily(Color(c.colorValue)))
-          .toSet()
-          .toList();
+      var itemsInCategory = myWardrobe.where((c) => c.mainCategory == _openedCategory).toList();
+      
+      // ignore: deprecated_member_use
+      var presentFamilies = itemsInCategory.map((c) => _getColorFamily(Color(c.colorValue))).toSet().toList();
       presentFamilies.sort();
 
       var itemsToDisplay = itemsInCategory;
-      if (_selectedSubFilter != null)
-        itemsToDisplay = itemsToDisplay
-            .where((c) => c.subCategory == _selectedSubFilter)
-            .toList();
-      if (_searchQuery.isNotEmpty)
-        itemsToDisplay = itemsToDisplay
-            .where(
-              (c) => c.subCategory.toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ),
-            )
-            .toList();
-      if (_selectedFamilyFilter != null)
-        itemsToDisplay = itemsToDisplay
-            .where(
-              (c) =>
-                  _getColorFamily(Color(c.colorValue)) == _selectedFamilyFilter,
-            )
-            .toList();
-
+      
+      if (_selectedSubFilter != null) {
+        itemsToDisplay = itemsToDisplay.where((c) => c.subCategory == _selectedSubFilter).toList();
+      }
+      
+      if (_searchQuery.isNotEmpty) {
+        itemsToDisplay = itemsToDisplay.where((c) => c.subCategory.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+      }
+      
+      if (_selectedFamilyFilter != null) {
+        // ignore: deprecated_member_use
+        itemsToDisplay = itemsToDisplay.where((c) => _getColorFamily(Color(c.colorValue)) == _selectedFamilyFilter).toList();
+      }
+      
       var subCats = itemsInCategory.map((c) => c.subCategory).toSet().toList();
-
+      
       return Column(
         children: [
           AppBar(
             leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => setState(() => _openedCategory = null),
-            ),
-            title: Text(_openedCategory!),
+              icon: const Icon(Icons.arrow_back), 
+              onPressed: () => setState(() => _openedCategory = null)
+            ), 
+            title: Text(_openedCategory!)
           ),
-          // Filtres SubCat[cite: 1]
+          
           SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            scrollDirection: Axis.horizontal, 
+            padding: const EdgeInsets.symmetric(horizontal: 10), 
             child: Row(
               children: [
                 FilterChip(
-                  label: const Text("Tout"),
-                  selected: _selectedSubFilter == null,
-                  onSelected: (v) => setState(() => _selectedSubFilter = null),
+                  label: const Text("Tout"), 
+                  selected: _selectedSubFilter == null, 
+                  onSelected: (v) => setState(() => _selectedSubFilter = null)
                 ),
-                ...subCats.map(
-                  (s) => Padding(
-                    padding: const EdgeInsets.only(left: 5),
-                    child: FilterChip(
-                      label: Text(s),
-                      selected: _selectedSubFilter == s,
-                      onSelected: (v) =>
-                          setState(() => _selectedSubFilter = v ? s : null),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+                ...subCats.map((s) => Padding(
+                  padding: const EdgeInsets.only(left: 5), 
+                  child: FilterChip(
+                    label: Text(s), 
+                    selected: _selectedSubFilter == s, 
+                    onSelected: (v) => setState(() => _selectedSubFilter = v ? s : null)
+                  )
+                ))
+              ]
+            )
           ),
-          // FILTRES COULEURS DYNAMIQUES[cite: 1]
+          
           if (presentFamilies.isNotEmpty)
             SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(10),
+              scrollDirection: Axis.horizontal, 
+              padding: const EdgeInsets.all(10), 
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => setState(() => _selectedFamilyFilter = null),
+                    onTap: () => setState(() => _selectedFamilyFilter = null), 
                     child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _selectedFamilyFilter == null
-                              ? Colors.indigo
-                              : Colors.grey,
+                      margin: const EdgeInsets.only(right: 8), 
+                      padding: const EdgeInsets.all(4), 
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: _selectedFamilyFilter == null ? Colors.indigo : Colors.grey)), 
+                      child: const Icon(Icons.filter_alt_off, size: 20)
+                    )
+                  ),
+                  ...presentFamilies.map((family) => GestureDetector(
+                    onTap: () => setState(() => _selectedFamilyFilter = family), 
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(right: 12), 
+                          width: 35, 
+                          height: 35, 
+                          decoration: BoxDecoration(
+                            color: _getFamilyDisplayColor(family), 
+                            shape: BoxShape.circle, 
+                            border: Border.all(color: _selectedFamilyFilter == family ? Colors.indigo : Colors.grey.shade300, width: _selectedFamilyFilter == family ? 3 : 1)
+                          )
                         ),
-                      ),
-                      child: const Icon(Icons.filter_alt_off, size: 20),
-                    ),
-                  ),
-                  ...presentFamilies.map(
-                    (family) => GestureDetector(
-                      onTap: () =>
-                          setState(() => _selectedFamilyFilter = family),
-                      child: Column(
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.only(right: 12),
-                            width: 35,
-                            height: 35,
-                            decoration: BoxDecoration(
-                              color: _getFamilyDisplayColor(family),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: _selectedFamilyFilter == family
-                                    ? Colors.indigo
-                                    : Colors.grey.shade300,
-                                width: _selectedFamilyFilter == family ? 3 : 1,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            family,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: _selectedFamilyFilter == family
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                        Text(family, style: TextStyle(fontSize: 9, fontWeight: _selectedFamilyFilter == family ? FontWeight.bold : FontWeight.normal))
+                      ]
+                    )
+                  ))
+                ]
+              )
             ),
+            
           Expanded(
             child: GridView.builder(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(12), 
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 0.75,
-              ),
-              itemCount: itemsToDisplay.length,
+                crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.75
+              ), 
+              itemCount: itemsToDisplay.length, 
               itemBuilder: (context, index) {
-                final item = itemsToDisplay[index];
+                final item = itemsToDisplay[index]; 
                 return Card(
-                  clipBehavior: Clip.antiAlias,
+                  clipBehavior: Clip.antiAlias, 
                   child: Stack(
                     children: [
                       Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        crossAxisAlignment: CrossAxisAlignment.stretch, 
                         children: [
-                          Expanded(
-                            child: Image.file(
-                              File(item.imagePath),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                          Expanded(child: Image.file(File(item.imagePath), fit: BoxFit.cover)), 
                           Padding(
-                            padding: const EdgeInsets.all(8),
+                            padding: const EdgeInsets.all(8), 
                             child: Column(
                               children: [
-                                Text(
-                                  item.subCategory,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (item.brand.isNotEmpty)
-                                  Text(
-                                    item.brand,
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (item.colorValue != 0)
+                                Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold)), 
+                                if (item.brand.isNotEmpty) 
+                                  Text(item.brand, style: const TextStyle(fontSize: 10, color: Colors.grey))
+                              ]
+                            )
+                          )
+                        ]
+                      ), 
+                      if (item.colorValue != 0) 
                         Positioned(
-                          left: 8,
-                          bottom: 8,
+                          left: 8, 
+                          bottom: 8, 
                           child: Container(
-                            width: 15,
-                            height: 15,
-                            decoration: BoxDecoration(
-                              color: Color(item.colorValue),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                          ),
-                        ),
+                            width: 15, 
+                            height: 15, 
+                            // ignore: deprecated_member_use
+                            decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2))
+                          )
+                        ), 
                       Positioned(
-                        right: 0,
-                        top: 0,
+                        right: 0, 
+                        top: 0, 
                         child: IconButton(
-                          icon: const Icon(
-                            Icons.remove_circle,
-                            color: Colors.red,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              myWardrobe.removeWhere((c) => c.id == item.id);
-                              if (!myWardrobe.any(
-                                (c) => c.mainCategory == _openedCategory,
-                              ))
-                                _openedCategory = null;
-                            });
-                            _saveData();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
+                          icon: const Icon(Icons.remove_circle, color: Colors.red), 
+                          onPressed: () { 
+                            setState(() { 
+                              myWardrobe.removeWhere((c) => c.id == item.id); 
+                              if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) {
+                                _openedCategory = null; 
+                              }
+                            }); 
+                            _saveData(); 
+                          }
+                        )
+                      )
+                    ]
+                  )
                 );
-              },
-            ),
-          ),
-        ],
+              }
+            )
+          )
+        ]
       );
     }
   }
 
-  void _showImageSourceOptions() {
+  // --- AJOUT HABIT ---
+  void _showImageSourceOptions() { 
     showModalBottomSheet(
-      context: context,
+      context: context, 
       builder: (context) => SafeArea(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min, 
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text("Appareil Photo"),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
-            ),
+              leading: const Icon(Icons.camera_alt), 
+              title: const Text("Appareil Photo"), 
+              onTap: () { 
+                Navigator.pop(context); 
+                _pickImage(ImageSource.camera); 
+              }
+            ), 
             ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text("Galerie Photos"),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+              leading: const Icon(Icons.photo_library), 
+              title: const Text("Galerie Photos"), 
+              onTap: () { 
+                Navigator.pop(context); 
+                _pickImage(ImageSource.gallery); 
+              }
+            )
+          ]
+        )
+      )
+    ); 
   }
 
-  Future<void> _pickImage(ImageSource s) async {
-    final f = await _picker.pickImage(source: s, imageQuality: 50);
-    if (f != null) {
-      if (!mounted) return;
-      _showAddEntrySheet(File(f.path));
-    }
+  Future<void> _pickImage(ImageSource s) async { 
+    final f = await _picker.pickImage(source: s, imageQuality: 50); 
+    if (f != null) { 
+      if (!mounted) return; 
+      _showAddEntrySheet(File(f.path)); 
+    } 
   }
 
   void _showAddEntrySheet(File img) {
-    String sCat = myCategories[0].name;
-    String sSub = myCategories[0].subCategories[0];
-    String sBrand = "";
-    bool shouldRemoveBg = false;
-    bool isProcessing = false;
-    List<String> existingBrands = myWardrobe
-        .map((c) => c.brand)
-        .where((b) => b.isNotEmpty)
-        .toSet()
-        .toList();
+    String sCat = myCategories[0].name; 
+    String sSub = myCategories[0].subCategories[0]; 
+    String sBrand = ""; 
+    bool shouldRemoveBg = false; 
+    bool isProcessing = false; 
+    
+    List<String> existingBrands = myWardrobe.map((c) => c.brand).where((b) => b.isNotEmpty).toSet().toList();
+    
     showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
+      context: context, 
+      isScrollControlled: true, 
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-            top: 20,
-            left: 20,
-            right: 20,
-          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20, top: 20, left: 20, right: 20), 
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min, 
             children: [
-              isProcessing
-                  ? const SizedBox(
-                      height: 150,
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : ClipRRect(
-                      borderRadius: BorderRadius.circular(15),
-                      child: Image.file(img, height: 150),
-                    ),
-              const SizedBox(height: 15),
+              isProcessing 
+                ? const SizedBox(height: 150, child: Center(child: CircularProgressIndicator())) 
+                : ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(img, height: 150)), 
+              
+              const SizedBox(height: 15), 
+              
               SwitchListTile(
-                title: const Text("Détourer"),
-                value: shouldRemoveBg,
-                activeThumbColor: Colors.indigo,
-                onChanged: isProcessing
-                    ? null
-                    : (v) => setModalState(() => shouldRemoveBg = v),
-              ),
+                title: const Text("Détourer"), 
+                value: shouldRemoveBg, 
+                activeThumbColor: Colors.indigo, 
+                onChanged: isProcessing ? null : (v) => setModalState(() => shouldRemoveBg = v)
+              ), 
+              
               Autocomplete<String>(
-                optionsBuilder: (v) => v.text.isEmpty
-                    ? existingBrands
-                    : existingBrands.where(
-                        (o) => o.toLowerCase().contains(v.text.toLowerCase()),
-                      ),
-                onSelected: (s) => sBrand = s,
-                fieldViewBuilder: (ctx, ctrl, focus, onEdit) {
-                  ctrl.addListener(() => sBrand = ctrl.text);
+                optionsBuilder: (v) {
+                  if (v.text.isEmpty) {
+                    return existingBrands;
+                  }
+                  return existingBrands.where((o) => o.toLowerCase().contains(v.text.toLowerCase()));
+                }, 
+                onSelected: (s) => sBrand = s, 
+                fieldViewBuilder: (ctx, ctrl, focus, onEdit) { 
+                  ctrl.addListener(() => sBrand = ctrl.text); 
                   return TextField(
-                    controller: ctrl,
-                    focusNode: focus,
-                    decoration: const InputDecoration(
-                      labelText: "Marque",
-                      border: OutlineInputBorder(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
+                    controller: ctrl, 
+                    focusNode: focus, 
+                    decoration: const InputDecoration(labelText: "Marque", border: OutlineInputBorder())
+                  ); 
+                }
+              ), 
+              
+              const SizedBox(height: 10), 
+              
               Row(
                 children: [
                   Expanded(
                     child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: sCat,
+                      isExpanded: true, 
+                      value: sCat, 
                       items: [
-                        ...myCategories.map(
-                          (c) => DropdownMenuItem(
-                            value: c.name,
-                            child: Text(c.name),
-                          ),
-                        ),
-                        const DropdownMenuItem(
-                          value: "NEW",
-                          child: Text("+ Créer"),
-                        ),
-                      ],
-                      onChanged: (v) => v == "NEW"
-                          ? _addNewMainCategory(setModalState)
-                          : setModalState(() {
-                              sCat = v!;
-                              sSub = myCategories
-                                  .firstWhere((c) => c.name == v)
-                                  .subCategories[0];
-                            }),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
+                        ...myCategories.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name))), 
+                        const DropdownMenuItem(value: "NEW", child: Text("+ Créer"))
+                      ], 
+                      onChanged: (v) {
+                        if (v == "NEW") {
+                          _addNewMainCategory(setModalState);
+                        } else {
+                          setModalState(() { 
+                            sCat = v!; 
+                            sSub = myCategories.firstWhere((c) => c.name == v).subCategories[0]; 
+                          });
+                        }
+                      }
+                    )
+                  ), 
+                  const SizedBox(width: 10), 
                   Expanded(
                     child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: sSub,
+                      isExpanded: true, 
+                      value: sSub, 
                       items: [
-                        ...myCategories
-                            .firstWhere((c) => c.name == sCat)
-                            .subCategories
-                            .map(
-                              (s) => DropdownMenuItem(value: s, child: Text(s)),
-                            ),
-                        const DropdownMenuItem(
-                          value: "NEW_S",
-                          child: Text("+ Créer"),
-                        ),
-                      ],
-                      onChanged: (v) => v == "NEW_S"
-                          ? _addNewSubCategory(sCat, setModalState)
-                          : setModalState(() => sSub = v!),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),
-                ),
-                onPressed: isProcessing
-                    ? null
-                    : () async {
-                        setModalState(() => isProcessing = true);
-                        File finalImage = img;
-                        if (shouldRemoveBg) {
-                          Uint8List? data = await _removeBackground(img);
-                          if (data != null) {
-                            final String path = img.path.replaceAll(
-                              RegExp(r'\.(jpg|jpeg|png)$'),
-                              '_nobg.webp',
-                            );
-                            finalImage = await File(path).writeAsBytes(data);
-                          }
+                        ...myCategories.firstWhere((c) => c.name == sCat).subCategories.map((s) => DropdownMenuItem(value: s, child: Text(s))), 
+                        const DropdownMenuItem(value: "NEW_S", child: Text("+ Créer"))
+                      ], 
+                      onChanged: (v) {
+                        if (v == "NEW_S") {
+                          _addNewSubCategory(sCat, setModalState);
+                        } else {
+                          setModalState(() => sSub = v!);
                         }
-                        Color color = await _extractColor(finalImage);
-                        setState(
-                          () => myWardrobe.add(
-                            Cloth(
-                              id: DateTime.now().toString(),
-                              imagePath: finalImage.path,
-                              mainCategory: sCat,
-                              subCategory: sSub,
-                              brand: sBrand.trim(),
-                              colorValue: color.value,
-                            ),
-                          ),
-                        );
-                        await _saveData();
-                        if (!mounted) return;
-                        Navigator.pop(context);
-                      },
-                child: Text(isProcessing ? "IA en cours..." : "Ajouter"),
-              ),
-            ],
-          ),
-        ),
-      ),
+                      }
+                    )
+                  )
+                ]
+              ), 
+              
+              const SizedBox(height: 20), 
+              
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)), 
+                onPressed: isProcessing ? null : () async { 
+                  setModalState(() => isProcessing = true); 
+                  File finalImage = img; 
+                  
+                  if (shouldRemoveBg) { 
+                    Uint8List? data = await _removeBackground(img); 
+                    if (data != null) { 
+                      final String path = img.path.replaceAll(RegExp(r'\.(jpg|jpeg|png)$'), '_nobg.webp'); 
+                      finalImage = await File(path).writeAsBytes(data); 
+                    } 
+                  } 
+                  
+                  Color color = await _extractColor(finalImage); 
+                  // ignore: deprecated_member_use
+                  int savedColorValue = color.value;
+
+                  setState(() {
+                    myWardrobe.add(Cloth(
+                      id: DateTime.now().toString(), 
+                      imagePath: finalImage.path, 
+                      mainCategory: sCat, 
+                      subCategory: sSub, 
+                      brand: sBrand.trim(), 
+                      colorValue: savedColorValue
+                    ));
+                  }); 
+                  
+                  await _saveData(); 
+                  
+                  if (!context.mounted) return; 
+                  Navigator.pop(context); 
+                }, 
+                child: Text(isProcessing ? "IA en cours..." : "Ajouter")
+              )
+            ]
+          )
+        )
+      )
     );
   }
 
-  void _addNewMainCategory(Function m) {
-    TextEditingController c = TextEditingController();
+  void _addNewMainCategory(Function m) { 
+    TextEditingController c = TextEditingController(); 
     showDialog(
-      context: context,
+      context: context, 
       builder: (ctx) => AlertDialog(
-        title: const Text("Catégorie"),
-        content: TextField(controller: c, autofocus: true),
+        title: const Text("Catégorie"), 
+        content: TextField(controller: c, autofocus: true), 
         actions: [
           ElevatedButton(
-            onPressed: () {
-              setState(
-                () => myCategories.add(
-                  Category(name: c.text, subCategories: ['Général']),
-                ),
-              );
-              _saveData();
-              m(() {});
-              Navigator.pop(ctx);
-            },
-            child: const Text("Ajouter"),
-          ),
-        ],
-      ),
-    );
+            onPressed: () { 
+              setState(() => myCategories.add(Category(name: c.text, subCategories: ['Général']))); 
+              _saveData(); 
+              m(() {}); 
+              Navigator.pop(ctx); 
+            }, 
+            child: const Text("Ajouter")
+          )
+        ]
+      )
+    ); 
   }
 
-  void _addNewSubCategory(String cat, Function m) {
-    TextEditingController c = TextEditingController();
+  void _addNewSubCategory(String cat, Function m) { 
+    TextEditingController c = TextEditingController(); 
     showDialog(
-      context: context,
+      context: context, 
       builder: (ctx) => AlertDialog(
-        title: Text("Type de $cat"),
-        content: TextField(controller: c, autofocus: true),
+        title: Text("Type de $cat"), 
+        content: TextField(controller: c, autofocus: true), 
         actions: [
           ElevatedButton(
-            onPressed: () {
-              setState(
-                () => myCategories
-                    .firstWhere((c) => c.name == cat)
-                    .subCategories
-                    .add(c.text),
-              );
-              _saveData();
-              m(() {});
-              Navigator.pop(ctx);
-            },
-            child: const Text("Ajouter"),
-          ),
-        ],
-      ),
-    );
+            onPressed: () { 
+              setState(() => myCategories.firstWhere((c) => c.name == cat).subCategories.add(c.text)); 
+              _saveData(); 
+              m(() {}); 
+              Navigator.pop(ctx); 
+            }, 
+            child: const Text("Ajouter")
+          )
+        ]
+      )
+    ); 
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _openedCategory == null
-          ? AppBar(title: const Text('My Dressing'), centerTitle: true)
-          : null,
+      appBar: _openedCategory == null 
+        ? AppBar(title: const Text('My Dressing'), centerTitle: true) 
+        : null, 
       body: [
-        _buildDressingContent(),
-        _buildOutfitsTab(),
-        _buildStatsTab(),
-      ][_selectedIndex],
+        _buildDressingContent(), 
+        _buildOutfitsTab(), 
+        _buildStatsTab()
+      ][_selectedIndex], 
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (i) => setState(() {
-          _selectedIndex = i;
-          _openedCategory = null;
-        }),
+        selectedIndex: _selectedIndex, 
+        onDestinationSelected: (i) => setState(() { 
+          _selectedIndex = i; 
+          _openedCategory = null; 
+        }), 
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.checkroom), label: 'Dressing'),
-          NavigationDestination(icon: Icon(Icons.style), label: 'Tenues'),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Stats'),
-        ],
-      ),
-      floatingActionButton: _selectedIndex == 2
-          ? null
-          : FloatingActionButton(
-              onPressed: _selectedIndex == 0
-                  ? _showImageSourceOptions
-                  : () => _openOutfitEditor(),
-              child: const Icon(Icons.add),
-            ),
+          NavigationDestination(icon: Icon(Icons.checkroom), label: 'Dressing'), 
+          NavigationDestination(icon: Icon(Icons.style), label: 'Tenues'), 
+          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Stats')
+        ]
+      ), 
+      floatingActionButton: _selectedIndex == 2 
+        ? null 
+        : FloatingActionButton(
+            onPressed: _selectedIndex == 0 ? _showImageSourceOptions : () => _openOutfitEditor(), 
+            child: const Icon(Icons.add)
+          )
     );
   }
 }
