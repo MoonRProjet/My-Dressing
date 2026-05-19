@@ -196,23 +196,19 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  // --- VARIABLES D'ÉTAT ---
   int _selectedIndex = 0;
   String? _openedCategory;
   String _searchQuery = "";
   String? _selectedSubFilter;
   String? _selectedFamilyFilter;
 
-  // Variables spécifiques au Shop
   bool _showOnlyWishlist = false;
   String _selectedShopCategory = "Tout";
   bool _isAdminMode = false;
 
-  // Outils
   final ImagePicker _picker = ImagePicker();
   final ScreenshotController _screenshotController = ScreenshotController();
 
-  // Bases de données locales
   List<Cloth> myWardrobe = [];
   List<Outfit> myOutfits = [];
   List<String> myWishlistIds = [];
@@ -226,6 +222,10 @@ class _MainNavigationState extends State<MainNavigation> {
   ];
 
   final String shopJsonUrl = "https://raw.githubusercontent.com/MoonRProjet/my-dressing-assets/main/catalogue.json";
+
+  // CONFIGURATION GITHUB
+  final String _githubToken = "";
+  final String _githubRepo = "MoonRProjet/my-dressing-assets";
 
   @override
   void initState() {
@@ -251,15 +251,10 @@ class _MainNavigationState extends State<MainNavigation> {
 
       myWishlistIds = prefs.getStringList('wishlist') ?? [];
       
-      // Récupération de l'ancien historique enregistré sur le téléphone
       List<String> savedOwned = prefs.getStringList('ownedItems') ?? [];
-      
-      // SYNC ANTI-BUG : On nettoie le cache local en ne gardant que les IDs 
-      // qui sont physiquement présents dans ta garde-robe. Tout le reste est débloqué.
       myOwnedItemIds = savedOwned.where((id) => myWardrobe.any((cloth) => cloth.id == id)).toList();
     });
 
-    // Sauvegarde immédiate du nettoyage dans le téléphone
     await prefs.setStringList('ownedItems', myOwnedItemIds);
 
     try {
@@ -365,6 +360,183 @@ class _MainNavigationState extends State<MainNavigation> {
     return null;
   }
 
+  // ==========================================
+  // --- AUTOMATISATION API GITHUB ---
+  // ==========================================
+  Future<String?> _uploadImageToGitHub(File imageFile, String mainCategory) async {
+    String folder = "autres";
+    String cat = mainCategory.toLowerCase();
+    if (cat.contains("haut")) folder = "hauts";
+    if (cat.contains("bas")) folder = "bas";
+    if (cat.contains("chaussure")) folder = "chaussures";
+
+    String fileName = "img_${DateTime.now().millisecondsSinceEpoch}.png";
+    String targetUrl = "https://api.github.com/repos/$_githubRepo/contents/shop/$folder/$fileName";
+
+    try {
+      List<int> imageBytes = await imageFile.readAsBytes();
+      String base64Image = base64Encode(imageBytes);
+
+      final response = await http.put(
+        Uri.parse(targetUrl),
+        headers: {
+          "Authorization": "token $_githubToken",
+          "Accept": "application/vnd.github+json",
+        },
+        body: jsonEncode({
+          "message": "Ajout image shop automatique depuis l'application",
+          "content": base64Image,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        return "https://raw.githubusercontent.com/$_githubRepo/main/shop/$folder/$fileName";
+      } else {
+        debugPrint("Échec upload image GitHub: ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("Erreur lors de l'upload de l'image: $e");
+      return null;
+    }
+  }
+
+  Future<bool> _addItemToGitHubCatalogue(ShopItem newItem) async {
+    String jsonUrl = "https://api.github.com/repos/$_githubRepo/contents/catalogue.json";
+
+    try {
+      final getResponse = await http.get(Uri.parse(jsonUrl), headers: {
+        "Authorization": "token $_githubToken",
+      });
+
+      List<dynamic> currentItems = [];
+      String? sha;
+
+      if (getResponse.statusCode == 200) {
+        final decodedBody = jsonDecode(getResponse.body);
+        sha = decodedBody["sha"];
+        String utf8Content = utf8.decode(base64Decode(decodedBody["content"].toString().replaceAll('\n', '')));
+        currentItems = jsonDecode(utf8Content);
+      }
+
+      currentItems.add(newItem.toJson());
+
+      String updatedJsonString = const JsonEncoder.withIndent('  ').convert(currentItems);
+      String base64Content = base64Encode(utf8.encode(updatedJsonString));
+
+      final putResponse = await http.put(
+        Uri.parse(jsonUrl),
+        headers: {
+          "Authorization": "token $_githubToken",
+          "Accept": "application/vnd.github+json",
+        },
+        body: jsonEncode({
+          "message": "Mise à jour automatique catalogue.json - Ajout ${newItem.name}",
+          "content": base64Content,
+          if (sha != null) "sha": sha,
+        }),
+      );
+
+      return putResponse.statusCode == 200 || putResponse.statusCode == 201;
+    } catch (e) {
+      debugPrint("Erreur lors de la mise à jour du JSON: $e");
+      return false;
+    }
+  }
+
+  Future<bool> _updateItemInGitHubCatalogue(ShopItem updatedItem) async {
+    String jsonUrl = "https://api.github.com/repos/$_githubRepo/contents/catalogue.json";
+    try {
+      final getResponse = await http.get(Uri.parse(jsonUrl), headers: {"Authorization": "token $_githubToken"});
+      if (getResponse.statusCode == 200) {
+        final decodedBody = jsonDecode(getResponse.body);
+        String shaJson = decodedBody["sha"];
+        String utf8Content = utf8.decode(base64Decode(decodedBody["content"].toString().replaceAll('\n', '')));
+        List<dynamic> currentItems = List.from(jsonDecode(utf8Content));
+
+        int index = currentItems.indexWhere((element) => element["id"] == updatedItem.id);
+        if (index != -1) {
+          currentItems[index] = updatedItem.toJson();
+        }
+
+        String updatedJsonString = const JsonEncoder.withIndent('  ').convert(currentItems);
+        String base64Content = base64Encode(utf8.encode(updatedJsonString));
+
+        final putResponse = await http.put(
+          Uri.parse(jsonUrl),
+          headers: {
+            "Authorization": "token $_githubToken",
+            "Accept": "application/vnd.github+json",
+          },
+          body: jsonEncode({
+            "message": "Modification de l'article ${updatedItem.name} via l'application",
+            "content": base64Content,
+            "sha": shaJson,
+          }),
+        );
+        return putResponse.statusCode == 200 || putResponse.statusCode == 201;
+      }
+      return false;
+    } catch (e) {
+      debugPrint("Erreur lors de l'update du catalogue : $e");
+      return false;
+    }
+  }
+
+  Future<void> _deleteItemFromGitHub(ShopItem item) async {
+    String jsonUrl = "https://api.github.com/repos/$_githubRepo/contents/catalogue.json";
+    try {
+      final getResponse = await http.get(Uri.parse(jsonUrl), headers: {"Authorization": "token $_githubToken"});
+      if (getResponse.statusCode == 200) {
+        final decodedBody = jsonDecode(getResponse.body);
+        String shaJson = decodedBody["sha"];
+        String utf8Content = utf8.decode(base64Decode(decodedBody["content"].toString().replaceAll('\n', '')));
+        List<dynamic> currentItems = jsonDecode(utf8Content);
+
+        currentItems.removeWhere((element) => element["id"] == item.id);
+
+        String updatedJsonString = const JsonEncoder.withIndent('  ').convert(currentItems);
+        String base64Content = base64Encode(utf8.encode(updatedJsonString));
+
+        await http.put(
+          Uri.parse(jsonUrl),
+          headers: {
+            "Authorization": "token $_githubToken",
+            "Accept": "application/vnd.github+json",
+          },
+          body: jsonEncode({
+            "message": "Suppression automatique de l'article ${item.name} via l'application",
+            "content": base64Content,
+            "sha": shaJson,
+          }),
+        );
+      }
+
+      String relativePath = item.imagePath.split('/main/').last;
+      String imageUrl = "https://api.github.com/repos/$_githubRepo/contents/$relativePath";
+
+      final getImageResponse = await http.get(Uri.parse(imageUrl), headers: {"Authorization": "token $_githubToken"});
+      if (getImageResponse.statusCode == 200) {
+        final decodedImage = jsonDecode(getImageResponse.body);
+        String shaImage = decodedImage["sha"];
+
+        await http.delete(
+          Uri.parse(imageUrl),
+          headers: {
+            "Authorization": "token $_githubToken",
+            "Accept": "application/vnd.github+json",
+          },
+          body: jsonEncode({
+            "message": "Suppression automatique de l'image associée à ${item.name}",
+            "sha": shaImage,
+          }),
+        );
+      }
+    } catch (e) {
+      debugPrint("Erreur lors de la suppression GitHub : $e");
+    }
+  }
+
   Future<Color> _extractColor(File imageFile) async {
     try {
       final PaletteGenerator paletteGenerator = await PaletteGenerator.fromImageProvider(FileImage(imageFile), maximumColorCount: 10);
@@ -418,7 +590,7 @@ class _MainNavigationState extends State<MainNavigation> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Mode Créateur"),
+        title: const Text("Mode Createur"),
         content: TextField(controller: pwd, obscureText: true, decoration: const InputDecoration(hintText: "Mot de passe")),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
@@ -577,6 +749,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   ),
                   onPressed: isProcessing ? null : () async {
                     setModalState(() => isProcessing = true);
+                    
                     File finalImg = img;
                     if (shouldRemoveBg) {
                       var data = await _removeBackground(img);
@@ -584,28 +757,151 @@ class _MainNavigationState extends State<MainNavigation> {
                         finalImg = await File(img.path.replaceAll(".jpg", "_nb.jpg")).writeAsBytes(data);
                       }
                     }
-                    final dir = await getApplicationDocumentsDirectory();
-                    final path = '${dir.path}/admin_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                    await finalImg.copy(path);
+
+                    String? gitHubImageUrl = await _uploadImageToGitHub(finalImg, sCat);
+
+                    if (gitHubImageUrl == null) {
+                      setModalState(() => isProcessing = false);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Échec de l'envoi de l'image sur GitHub"), backgroundColor: Colors.red)
+                      );
+                      return;
+                    }
+
+                    ShopItem newItem = ShopItem(
+                      id: "item_${DateTime.now().millisecondsSinceEpoch}",
+                      name: sName.isEmpty ? "Article" : sName,
+                      brand: sBrand,
+                      imagePath: gitHubImageUrl,
+                      mainCategory: sCat,
+                      subCategory: sSub,
+                      price: sPrice,
+                      isSponsor: isSponsor,
+                    );
+
+                    bool success = await _addItemToGitHubCatalogue(newItem);
+
+                    if (success) {
+                      setState(() {
+                        myShopItems.insert(0, newItem);
+                      });
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Article publié en ligne avec succès !"), backgroundColor: Colors.green)
+                      );
+                    } else {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Erreur lors de la mise à jour du JSON distant"), backgroundColor: Colors.red)
+                      );
+                    }
                     
-                    setState(() {
-                      myShopItems.insert(0, ShopItem(
-                        id: "admin_${DateTime.now()}",
-                        name: sName.isEmpty ? "Article" : sName,
-                        brand: sBrand,
-                        imagePath: path,
-                        mainCategory: sCat,
-                        subCategory: sSub,
-                        price: sPrice,
-                        isSponsor: isSponsor,
-                      ));
-                    });
-                    
-                    await _saveData();
+                    setModalState(() => isProcessing = false);
                     if (!context.mounted) return;
                     Navigator.pop(context);
                   },
                   child: const Text("Publier sur le Shop"),
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showEditShopEntrySheet(ShopItem item) {
+    String sCat = item.mainCategory;
+    String sSub = item.subCategory;
+    String sBrand = item.brand;
+    String sName = item.name;
+    double sPrice = item.price;
+    bool isSponsor = item.isSponsor;
+    bool isProcessing = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 20, top: 20, left: 20, right: 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Modifier l'article", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: TextEditingController(text: sName)..selection = TextSelection.collapsed(offset: sName.length),
+                  decoration: const InputDecoration(labelText: "Nom de l'article", border: OutlineInputBorder()),
+                  onChanged: (v) => sName = v,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: TextEditingController(text: sBrand),
+                        decoration: const InputDecoration(labelText: "Marque", border: OutlineInputBorder()),
+                        onChanged: (v) => sBrand = v,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        keyboardType: TextInputType.number,
+                        controller: TextEditingController(text: sPrice.toString()),
+                        decoration: const InputDecoration(labelText: "Prix (€)", border: OutlineInputBorder()),
+                        onChanged: (v) => sPrice = double.tryParse(v) ?? 0.0,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                SwitchListTile(
+                  title: const Text("Sponsor (Mettre en avant)"),
+                  value: isSponsor,
+                  activeColor: Colors.amber,
+                  onChanged: (v) => setModalState(() => isSponsor = v),
+                ),
+                const SizedBox(height: 15),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, minimumSize: const Size.fromHeight(50)),
+                  onPressed: isProcessing ? null : () async {
+                    setModalState(() => isProcessing = true);
+
+                    ShopItem updatedItem = ShopItem(
+                      id: item.id,
+                      name: sName,
+                      brand: sBrand,
+                      imagePath: item.imagePath,
+                      mainCategory: sCat,
+                      subCategory: sSub,
+                      price: sPrice,
+                      isSponsor: isSponsor,
+                    );
+
+                    bool success = await _updateItemInGitHubCatalogue(updatedItem);
+
+                    if (success) {
+                      setState(() {
+                        int idx = myShopItems.indexWhere((x) => x.id == item.id);
+                        if (idx != -1) myShopItems[idx] = updatedItem;
+                      });
+                      _saveData();
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Article mis à jour en ligne !"), backgroundColor: Colors.green));
+                    } else {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la modification en ligne"), backgroundColor: Colors.red));
+                    }
+
+                    setModalState(() => isProcessing = false);
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                  },
+                  child: isProcessing ? const CircularProgressIndicator(color: Colors.white) : const Text("Enregistrer les modifications"),
                 )
               ],
             ),
@@ -637,7 +933,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
       setState(() {
         myWardrobe.add(Cloth(
-          id: item.id, // ID calqué sur le catalogue pour l'intégrité de la suppression
+          id: item.id,
           imagePath: localImage.path,
           mainCategory: item.mainCategory,
           subCategory: item.subCategory,
@@ -718,20 +1014,39 @@ class _MainNavigationState extends State<MainNavigation> {
                       child: const Text("SPONSOR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
                   ),
-                if (_isAdminMode)
+                if (_isAdminMode) ...[
                   Positioned(
                     top: 5, left: 5,
                     child: Container(
                       decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.8), shape: BoxShape.circle),
                       child: IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.indigo, size: 20),
+                        onPressed: () => _showEditShopEntrySheet(item),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 50, left: 5,
+                    child: Container(
+                      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.8), shape: BoxShape.circle),
+                      child: IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                        onPressed: () {
-                          setState(() => myShopItems.removeWhere((x) => x.id == item.id));
+                        onPressed: () async {
+                          final itemToDelete = item;
+                          setState(() {
+                            myShopItems.removeWhere((x) => x.id == itemToDelete.id);
+                          });
                           _saveData();
+                          await _deleteItemFromGitHub(itemToDelete);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("${itemToDelete.name} supprimé de GitHub"), backgroundColor: Colors.orange)
+                          );
                         },
                       ),
                     ),
-                  )
+                  ),
+                ]
               ],
             ),
           ),
@@ -792,7 +1107,7 @@ class _MainNavigationState extends State<MainNavigation> {
           title: GestureDetector(
             onLongPress: _toggleAdminMode,
             child: Text(
-              _isAdminMode ? "Admin Mode 🛠️" : (_showOnlyWishlist ? "Ma Wishlist ❤️" : "Shop & Trends"),
+              _isAdminMode ? "Admin Mode" : (_showOnlyWishlist ? "Ma Wishlist" : "Shop"),
               style: TextStyle(color: _isAdminMode ? Colors.amber : Colors.black),
             ),
           ),
@@ -834,7 +1149,7 @@ class _MainNavigationState extends State<MainNavigation> {
               children: [
                 const Padding(
                   padding: EdgeInsets.only(left: 15, top: 10, bottom: 10),
-                  child: Text("🔥 Tendances du moment", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  child: Text("Tendances du moment", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
                 SizedBox(
                   height: 250,
@@ -875,6 +1190,171 @@ class _MainNavigationState extends State<MainNavigation> {
         ),
       ],
     );
+  }
+
+  // ==========================================
+  // --- UI : ONGLET DRESSING ---
+  // ==========================================
+  Widget _buildDressingContent() {
+    if (_openedCategory == null) {
+      var activeCategories = myCategories.where((cat) => myWardrobe.any((cloth) => cloth.mainCategory == cat.name)).toList();
+      return GridView.builder(
+        padding: const EdgeInsets.all(15),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15),
+        itemCount: activeCategories.length,
+        itemBuilder: (context, index) {
+          final cat = activeCategories[index];
+          final count = myWardrobe.where((c) => c.mainCategory == cat.name).length;
+          return InkWell(
+            onTap: () => setState(() {
+              _openedCategory = cat.name;
+              _searchQuery = "";
+              _selectedSubFilter = null;
+              _selectedFamilyFilter = null;
+            }),
+            child: Container(
+              decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.folder, size: 60),
+                  Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text("$count habits")
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      var itemsInCategory = myWardrobe.where((c) => c.mainCategory == _openedCategory).toList();
+      var presentFamilies = itemsInCategory.map((c) => _getColorFamily(Color(c.colorValue))).toSet().toList();
+      presentFamilies.sort();
+      
+      var itemsToDisplay = itemsInCategory;
+      if (_selectedSubFilter != null) itemsToDisplay = itemsToDisplay.where((c) => c.subCategory == _selectedSubFilter).toList();
+      if (_searchQuery.isNotEmpty) itemsToDisplay = itemsToDisplay.where((c) => c.subCategory.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+      if (_selectedFamilyFilter != null) itemsToDisplay = itemsToDisplay.where((c) => _getColorFamily(Color(c.colorValue)) == _selectedFamilyFilter).toList();
+      
+      var subCats = itemsInCategory.map((c) => c.subCategory).toSet().toList();
+      
+      return Column(
+        children: [
+          AppBar(
+            leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _openedCategory = null)),
+            title: Text(_openedCategory!),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                FilterChip(label: const Text("Tout"), selected: _selectedSubFilter == null, onSelected: (v) => setState(() => _selectedSubFilter = null)),
+                ...subCats.map((s) => Padding(
+                  padding: const EdgeInsets.only(left: 5),
+                  child: FilterChip(label: Text(s), selected: _selectedSubFilter == s, onSelected: (v) => setState(() => _selectedSubFilter = v ? s : null)),
+                ))
+              ],
+            ),
+          ),
+          if (presentFamilies.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _selectedFamilyFilter = null),
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: _selectedFamilyFilter == null ? Colors.indigo : Colors.grey)),
+                      child: const Icon(Icons.filter_alt_off, size: 20),
+                    ),
+                  ),
+                  ...presentFamilies.map((family) => GestureDetector(
+                    onTap: () => setState(() => _selectedFamilyFilter = family),
+                    child: Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(right: 12),
+                          width: 35, height: 35,
+                          decoration: BoxDecoration(
+                            color: _getFamilyDisplayColor(family),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: _selectedFamilyFilter == family ? Colors.indigo : Colors.grey.shade300, width: _selectedFamilyFilter == family ? 3 : 1),
+                          ),
+                        ),
+                        Text(family, style: TextStyle(fontSize: 9, fontWeight: _selectedFamilyFilter == family ? FontWeight.bold : FontWeight.normal))
+                      ],
+                    ),
+                  ))
+                ],
+              ),
+            ),
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.75),
+              itemCount: itemsToDisplay.length,
+              itemBuilder: (context, index) {
+                final item = itemsToDisplay[index];
+                return Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: Container(
+                              color: Colors.grey.shade50,
+                              padding: const EdgeInsets.all(12),
+                              child: Image.file(File(item.imagePath), fit: BoxFit.contain),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              children: [
+                                Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                if (item.brand.isNotEmpty) Text(item.brand, style: const TextStyle(fontSize: 10, color: Colors.grey))
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                      if (item.colorValue != 0)
+                        Positioned(
+                          left: 8, bottom: 8,
+                          child: Container(
+                            width: 15, height: 15,
+                            decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                          ),
+                        ),
+                      Positioned(
+                        right: 0, top: 0,
+                        child: IconButton(
+                          icon: const Icon(Icons.remove_circle, color: Colors.red),
+                          onPressed: () {
+                            setState(() {
+                              myWardrobe.removeWhere((c) => c.id == item.id);
+                              myOwnedItemIds.remove(item.id);
+                              if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) _openedCategory = null;
+                            });
+                            _saveData();
+                          },
+                        ),
+                      )
+                    ],
+                  ),
+                );
+              },
+            ),
+          )
+        ],
+      );
+    }
   }
 
   // ==========================================
@@ -1397,7 +1877,6 @@ class _MainNavigationState extends State<MainNavigation> {
                     }
                   }
                   Color color = await _extractColor(finalImage);
-                  // ignore: deprecated_member_use
                   int val = color.value;
                   
                   setState(() {
@@ -1421,186 +1900,6 @@ class _MainNavigationState extends State<MainNavigation> {
         ),
       ),
     );
-  }
-
-  Widget _buildDressingContent() {
-    if (_openedCategory == null) {
-      var activeCategories = myCategories.where((cat) => myWardrobe.any((cloth) => cloth.mainCategory == cat.name)).toList();
-      return GridView.builder(
-        padding: const EdgeInsets.all(15),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, 
-          crossAxisSpacing: 15, 
-          mainAxisSpacing: 15
-        ),
-        itemCount: activeCategories.length,
-        itemBuilder: (context, index) {
-          final cat = activeCategories[index];
-          final count = myWardrobe.where((c) => c.mainCategory == cat.name).length;
-          return InkWell(
-            onTap: () => setState(() {
-              _openedCategory = cat.name;
-              _searchQuery = "";
-              _selectedSubFilter = null;
-              _selectedFamilyFilter = null;
-            }),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.indigo.withValues(alpha: 0.1), 
-                borderRadius: BorderRadius.circular(20)
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.folder, size: 60),
-                  Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text("$count habits")
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    } else {
-      var itemsInCategory = myWardrobe.where((c) => c.mainCategory == _openedCategory).toList();
-      // ignore: deprecated_member_use
-      var presentFamilies = itemsInCategory.map((c) => _getColorFamily(Color(c.colorValue))).toSet().toList();
-      presentFamilies.sort();
-      
-      var itemsToDisplay = itemsInCategory;
-      if (_selectedSubFilter != null) itemsToDisplay = itemsToDisplay.where((c) => c.subCategory == _selectedSubFilter).toList();
-      if (_searchQuery.isNotEmpty) itemsToDisplay = itemsToDisplay.where((c) => c.subCategory.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
-      // ignore: deprecated_member_use
-      if (_selectedFamilyFilter != null) itemsToDisplay = itemsToDisplay.where((c) => _getColorFamily(Color(c.colorValue)) == _selectedFamilyFilter).toList();
-      
-      var subCats = itemsInCategory.map((c) => c.subCategory).toSet().toList();
-      
-      return Column(
-        children: [
-          AppBar(
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back), 
-              onPressed: () => setState(() => _openedCategory = null)
-            ),
-            title: Text(_openedCategory!),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                FilterChip(label: const Text("Tout"), selected: _selectedSubFilter == null, onSelected: (v) => setState(() => _selectedSubFilter = null)),
-                ...subCats.map((s) => Padding(
-                  padding: const EdgeInsets.only(left: 5),
-                  child: FilterChip(label: Text(s), selected: _selectedSubFilter == s, onSelected: (v) => setState(() => _selectedSubFilter = v ? s : null)),
-                ))
-              ],
-            ),
-          ),
-          if (presentFamilies.isNotEmpty)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(10),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _selectedFamilyFilter = null),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: _selectedFamilyFilter == null ? Colors.indigo : Colors.grey)),
-                      child: const Icon(Icons.filter_alt_off, size: 20),
-                    ),
-                  ),
-                  ...presentFamilies.map((family) => GestureDetector(
-                    onTap: () => setState(() => _selectedFamilyFilter = family),
-                    child: Column(
-                      children: [
-                        Container(
-                          margin: const EdgeInsets.only(right: 12),
-                          width: 35, height: 35,
-                          decoration: BoxDecoration(
-                            color: _getFamilyDisplayColor(family),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: _selectedFamilyFilter == family ? Colors.indigo : Colors.grey.shade300, width: _selectedFamilyFilter == family ? 3 : 1),
-                          ),
-                        ),
-                        Text(family, style: TextStyle(fontSize: 9, fontWeight: _selectedFamilyFilter == family ? FontWeight.bold : FontWeight.normal))
-                      ],
-                    ),
-                  ))
-                ],
-              ),
-            ),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2, 
-                crossAxisSpacing: 10, 
-                mainAxisSpacing: 10, 
-                childAspectRatio: 0.75
-              ),
-              itemCount: itemsToDisplay.length,
-              itemBuilder: (context, index) {
-                final item = itemsToDisplay[index];
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: Stack(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: Container(
-                              color: Colors.grey.shade50,
-                              padding: const EdgeInsets.all(12),
-                              child: Image.file(File(item.imagePath), fit: BoxFit.contain),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                              children: [
-                                Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                if (item.brand.isNotEmpty) Text(item.brand, style: const TextStyle(fontSize: 10, color: Colors.grey))
-                              ],
-                            ),
-                          )
-                        ],
-                      ),
-                      if (item.colorValue != 0)
-                        Positioned(
-                          left: 8, bottom: 8,
-                          child: Container(
-                            width: 15, height: 15,
-                            // ignore: deprecated_member_use
-                            decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
-                          ),
-                        ),
-                      Positioned(
-                        right: 0, top: 0,
-                        child: IconButton(
-                          icon: const Icon(Icons.remove_circle, color: Colors.red),
-                          onPressed: () {
-                            setState(() {
-                              myWardrobe.removeWhere((c) => c.id == item.id);
-                              myOwnedItemIds.remove(item.id); // Double purge : libère l'ID pour le Shop
-                              if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) _openedCategory = null;
-                            });
-                            _saveData();
-                          },
-                        ),
-                      )
-                    ],
-                  ),
-                );
-              },
-            ),
-          )
-        ],
-      );
-    }
   }
 
   @override
