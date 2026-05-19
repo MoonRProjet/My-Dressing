@@ -137,6 +137,7 @@ class ShopItem {
   final String subCategory;
   final double price;
   final bool isSponsor;
+  final int colorValue;
 
   ShopItem({
     required this.id,
@@ -147,6 +148,7 @@ class ShopItem {
     required this.subCategory,
     required this.price,
     this.isSponsor = false,
+    this.colorValue = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -158,6 +160,7 @@ class ShopItem {
         'subCategory': subCategory,
         'price': price,
         'isSponsor': isSponsor,
+        'colorValue': colorValue,
       };
 
   factory ShopItem.fromJson(Map<String, dynamic> json) => ShopItem(
@@ -169,6 +172,7 @@ class ShopItem {
         subCategory: json['subCategory'],
         price: json['price'].toDouble(),
         isSponsor: json['isSponsor'] ?? false,
+        colorValue: json['colorValue'] ?? 0,
       );
 }
 
@@ -202,9 +206,15 @@ class _MainNavigationState extends State<MainNavigation> {
   String? _selectedSubFilter;
   String? _selectedFamilyFilter;
 
+  // Filtres specifiques au Shop
   bool _showOnlyWishlist = false;
   String _selectedShopCategory = "Tout";
   bool _isAdminMode = false;
+  String? _selectedShopBrandFilter;
+  String? _selectedShopColorFilter;
+  double _maxPriceFilter = 500.0;
+
+  late PageController _pageController;
 
   final ImagePicker _picker = ImagePicker();
   final ScreenshotController _screenshotController = ScreenshotController();
@@ -223,14 +233,23 @@ class _MainNavigationState extends State<MainNavigation> {
 
   final String shopJsonUrl = "https://raw.githubusercontent.com/MoonRProjet/my-dressing-assets/main/catalogue.json";
 
-  // CONFIGURATION GITHUB
+  // CONFIGURATION GITHUB API
   final String _githubToken = "";
   final String _githubRepo = "MoonRProjet/my-dressing-assets";
 
   @override
   void initState() {
     super.initState();
+    // On initialise le PageController à l'index de départ
+    _pageController = PageController(initialPage: _selectedIndex);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    // Toujours détruire le contrôleur pour libérer la mémoire
+    _pageController.dispose();
+    super.dispose();
   }
 
   // ==========================================
@@ -263,17 +282,8 @@ class _MainNavigationState extends State<MainNavigation> {
       if (response.statusCode == 200) {
         final List<dynamic> decodedJson = jsonDecode(response.body);
 
-        String? sS = prefs.getString('shopItems');
-        List<ShopItem> localAdminItems = [];
-        if (sS != null && sS.isNotEmpty) {
-          localAdminItems = List<ShopItem>.from(jsonDecode(sS).map((m) => ShopItem.fromJson(m)));
-        }
-
         setState(() {
-          myShopItems = [
-            ...decodedJson.map((m) => ShopItem.fromJson(m)).toList(),
-            ...localAdminItems
-          ];
+          myShopItems = List<ShopItem>.from(decodedJson.map((m) => ShopItem.fromJson(m)));
         });
 
         await prefs.setString('shopItems_cache', response.body);
@@ -281,21 +291,17 @@ class _MainNavigationState extends State<MainNavigation> {
         _loadShopFromCache(prefs);
       }
     } catch (e) {
-      debugPrint("Erreur réseau catalogue : $e");
+      debugPrint("Erreur reseau catalogue : $e");
       _loadShopFromCache(prefs);
     }
   }
 
   void _loadShopFromCache(SharedPreferences prefs) {
     String? cached = prefs.getString('shopItems_cache');
-    String? adminS = prefs.getString('shopItems');
     List<ShopItem> items = [];
 
     if (cached != null) {
       items.addAll(List<ShopItem>.from(jsonDecode(cached).map((m) => ShopItem.fromJson(m))));
-    }
-    if (adminS != null) {
-      items.addAll(List<ShopItem>.from(jsonDecode(adminS).map((m) => ShopItem.fromJson(m))));
     }
 
     setState(() => myShopItems = items);
@@ -308,9 +314,6 @@ class _MainNavigationState extends State<MainNavigation> {
     await prefs.setString('outfits', jsonEncode(myOutfits.map((e) => e.toJson()).toList()));
     await prefs.setStringList('wishlist', myWishlistIds);
     await prefs.setStringList('ownedItems', myOwnedItemIds);
-    
-    var adminOnly = myShopItems.where((item) => item.id.contains("admin")).toList();
-    await prefs.setString('shopItems', jsonEncode(adminOnly.map((e) => e.toJson()).toList()));
   }
 
   // ==========================================
@@ -355,13 +358,13 @@ class _MainNavigationState extends State<MainNavigation> {
         }
       }
     } catch (e) {
-      debugPrint("Erreur détourage: $e");
+      debugPrint("Erreur detourage: $e");
     }
     return null;
   }
 
   // ==========================================
-  // --- AUTOMATISATION API GITHUB ---
+  // --- INTERACTION API GITHUB (ADMIN) ---
   // ==========================================
   Future<String?> _uploadImageToGitHub(File imageFile, String mainCategory) async {
     String folder = "autres";
@@ -392,11 +395,9 @@ class _MainNavigationState extends State<MainNavigation> {
       if (response.statusCode == 201) {
         return "https://raw.githubusercontent.com/$_githubRepo/main/shop/$folder/$fileName";
       } else {
-        debugPrint("Échec upload image GitHub: ${response.body}");
         return null;
       }
     } catch (e) {
-      debugPrint("Erreur lors de l'upload de l'image: $e");
       return null;
     }
   }
@@ -431,7 +432,7 @@ class _MainNavigationState extends State<MainNavigation> {
           "Accept": "application/vnd.github+json",
         },
         body: jsonEncode({
-          "message": "Mise à jour automatique catalogue.json - Ajout ${newItem.name}",
+          "message": "Mise a jour automatique catalogue.json - Ajout ${newItem.name}",
           "content": base64Content,
           if (sha != null) "sha": sha,
         }),
@@ -439,7 +440,6 @@ class _MainNavigationState extends State<MainNavigation> {
 
       return putResponse.statusCode == 200 || putResponse.statusCode == 201;
     } catch (e) {
-      debugPrint("Erreur lors de la mise à jour du JSON: $e");
       return false;
     }
   }
@@ -478,7 +478,6 @@ class _MainNavigationState extends State<MainNavigation> {
       }
       return false;
     } catch (e) {
-      debugPrint("Erreur lors de l'update du catalogue : $e");
       return false;
     }
   }
@@ -505,7 +504,7 @@ class _MainNavigationState extends State<MainNavigation> {
             "Accept": "application/vnd.github+json",
           },
           body: jsonEncode({
-            "message": "Suppression automatique de l'article ${item.name} via l'application",
+            "message": "Suppression de l'article ${item.name} via l'application",
             "content": base64Content,
             "sha": shaJson,
           }),
@@ -527,13 +526,13 @@ class _MainNavigationState extends State<MainNavigation> {
             "Accept": "application/vnd.github+json",
           },
           body: jsonEncode({
-            "message": "Suppression automatique de l'image associée à ${item.name}",
+            "message": "Suppression de l'image associee a ${item.name}",
             "sha": shaImage,
           }),
         );
       }
     } catch (e) {
-      debugPrint("Erreur lors de la suppression GitHub : $e");
+      debugPrint("Erreur suppression GitHub: $e");
     }
   }
 
@@ -579,7 +578,7 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   // ==========================================
-  // --- GESTION ADMIN & AJOUTS SHOP ---
+  // --- CONTROLE ET MODAL CRÉATEUR ---
   // ==========================================
   void _toggleAdminMode() {
     if (_isAdminMode) {
@@ -601,7 +600,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 Navigator.pop(ctx);
               } else {
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Accès refusé"), backgroundColor: Colors.red));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Acces refuse"), backgroundColor: Colors.red));
               }
             },
             child: const Text("Valider"),
@@ -663,7 +662,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 const SizedBox(height: 10),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.psychology),
-                  label: const Text("Auto-détection IA"),
+                  label: const Text("Auto-detection IA"),
                   onPressed: () async {
                     setModalState(() => isProcessing = true);
                     final d = await _analyzeImageLabels(img);
@@ -698,7 +697,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     Expanded(
                       child: TextField(
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: "Prix (€)", border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: "Prix (e)", border: OutlineInputBorder()),
                         onChanged: (v) => sPrice = double.tryParse(v) ?? 0.0,
                       ),
                     ),
@@ -709,7 +708,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: "Catégorie", border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: "Categorie", border: OutlineInputBorder()),
                         value: sCat,
                         items: myCategories.map((c) => DropdownMenuItem(value: c.name, child: Text(c.name))).toList(),
                         onChanged: (v) => setModalState(() {
@@ -730,7 +729,7 @@ class _MainNavigationState extends State<MainNavigation> {
                   ],
                 ),
                 SwitchListTile(
-                  title: const Text("Détourer"),
+                  title: const Text("Detourer"),
                   value: shouldRemoveBg,
                   onChanged: (v) => setModalState(() => shouldRemoveBg = v),
                 ),
@@ -758,13 +757,16 @@ class _MainNavigationState extends State<MainNavigation> {
                       }
                     }
 
+                    Color color = await _extractColor(finalImg);
+                    int val = color.value;
+
                     String? gitHubImageUrl = await _uploadImageToGitHub(finalImg, sCat);
 
                     if (gitHubImageUrl == null) {
                       setModalState(() => isProcessing = false);
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Échec de l'envoi de l'image sur GitHub"), backgroundColor: Colors.red)
+                        const SnackBar(content: Text("Echec de l'envoi de l'image sur GitHub"), backgroundColor: Colors.red)
                       );
                       return;
                     }
@@ -778,6 +780,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       subCategory: sSub,
                       price: sPrice,
                       isSponsor: isSponsor,
+                      colorValue: val,
                     );
 
                     bool success = await _addItemToGitHubCatalogue(newItem);
@@ -788,12 +791,12 @@ class _MainNavigationState extends State<MainNavigation> {
                       });
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Article publié en ligne avec succès !"), backgroundColor: Colors.green)
+                        const SnackBar(content: Text("Article publie en ligne avec succes !"), backgroundColor: Colors.green)
                       );
                     } else {
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Erreur lors de la mise à jour du JSON distant"), backgroundColor: Colors.red)
+                        const SnackBar(content: Text("Erreur lors de la mise a jour du JSON distant"), backgroundColor: Colors.red)
                       );
                     }
                     
@@ -852,7 +855,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       child: TextField(
                         keyboardType: TextInputType.number,
                         controller: TextEditingController(text: sPrice.toString()),
-                        decoration: const InputDecoration(labelText: "Prix (€)", border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: "Prix (e)", border: OutlineInputBorder()),
                         onChanged: (v) => sPrice = double.tryParse(v) ?? 0.0,
                       ),
                     ),
@@ -880,6 +883,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       subCategory: sSub,
                       price: sPrice,
                       isSponsor: isSponsor,
+                      colorValue: item.colorValue,
                     );
 
                     bool success = await _updateItemInGitHubCatalogue(updatedItem);
@@ -889,9 +893,8 @@ class _MainNavigationState extends State<MainNavigation> {
                         int idx = myShopItems.indexWhere((x) => x.id == item.id);
                         if (idx != -1) myShopItems[idx] = updatedItem;
                       });
-                      _saveData();
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Article mis à jour en ligne !"), backgroundColor: Colors.green));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Article mis a jour en ligne !"), backgroundColor: Colors.green));
                     } else {
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la modification en ligne"), backgroundColor: Colors.red));
@@ -911,15 +914,158 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
-  // --- WARDROBE ACTIONS (Depuis le Shop) ---
+  void _showShopFiltersSheet() {
+    List<String> availableBrands = myShopItems.map((item) => item.brand).where((b) => b.isNotEmpty).toSet().toList();
+    availableBrands.sort();
+
+    List<String> availableColors = myShopItems
+        .where((item) => item.colorValue != 0)
+        .map((item) => _getColorFamily(Color(item.colorValue)))
+        .toSet()
+        .toList();
+    availableColors.sort();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Filtrer les articles", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedShopBrandFilter = null;
+                        _selectedShopColorFilter = null;
+                        _maxPriceFilter = 500.0;
+                      });
+                      setModalState(() {
+                        _selectedShopBrandFilter = null;
+                        _selectedShopColorFilter = null;
+                        _maxPriceFilter = 500.0;
+                      });
+                      setState(() {});
+                      Navigator.pop(context);
+                    },
+                    child: const Text("Reinitialiser"),
+                  )
+                ],
+              ),
+              const Divider(),
+              Text("Prix maximum : ${_maxPriceFilter.toInt()} e", style: const TextStyle(fontWeight: FontWeight.bold)),
+              Slider(
+                value: _maxPriceFilter,
+                min: 0.0,
+                max: 500.0,
+                divisions: 50,
+                label: "${_maxPriceFilter.toInt()} e",
+                onChanged: (v) {
+                  setModalState(() => _maxPriceFilter = v);
+                  setState(() {});
+                },
+              ),
+              const SizedBox(height: 15),
+              if (availableBrands.isNotEmpty) ...[
+                const Text("Marques", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 40,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: availableBrands.length,
+                    itemBuilder: (context, idx) {
+                      String brand = availableBrands[idx];
+                      bool isSelected = _selectedShopBrandFilter == brand;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(brand),
+                          selected: isSelected,
+                          selectedColor: Colors.indigo,
+                          labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                          onSelected: (selected) {
+                            setModalState(() => _selectedShopBrandFilter = selected ? brand : null);
+                            setState(() {});
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 15),
+              ],
+              if (availableColors.isNotEmpty) ...[
+                const Text("Couleurs", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 55,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: availableColors.length,
+                    itemBuilder: (context, idx) {
+                      String family = availableColors[idx];
+                      bool isSelected = _selectedShopColorFilter == family;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => _selectedShopColorFilter = isSelected ? null : family);
+                          setState(() {});
+                        },
+                        child: Column(
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(right: 12),
+                              width: 35, height: 35,
+                              decoration: BoxDecoration(
+                                color: _getFamilyDisplayColor(family),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected ? Colors.indigo : Colors.grey.shade300, 
+                                  width: isSelected ? 3 : 1
+                                ),
+                              ),
+                            ),
+                            Text(family, style: TextStyle(fontSize: 9, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal))
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 15),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Voir les articles"),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- ACTIONS DE SYNCHRONISATION DRESSING ---
   Future<void> _addShopItemToWardrobe(ShopItem item) async {
     if (myOwnedItemIds.contains(item.id)) return;
+
+    // OPTIMISATION : Mise à jour visuelle instantanée de l'interface graphique
+    setState(() {
+      myOwnedItemIds.add(item.id);
+    });
 
     try {
       File localImage;
       if (item.imagePath.startsWith('http')) {
         final response = await http.get(Uri.parse(item.imagePath));
-        if (response.statusCode != 200) throw Exception('Erreur réseau');
+        if (response.statusCode != 200) throw Exception('Erreur reseau');
         final directory = await getApplicationDocumentsDirectory();
         final String path = '${directory.path}/wardrobe_${item.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
         localImage = await File(path).writeAsBytes(response.bodyBytes);
@@ -929,7 +1075,13 @@ class _MainNavigationState extends State<MainNavigation> {
         localImage = await File(item.imagePath).copy(path);
       }
 
-      Color color = await _extractColor(localImage);
+      // OPTIMISATION TRÈS FORTE : On supprime l'extraction PaletteGenerator qui gelait l'écran.
+      // On récupère directement la couleur pré-calculée en ligne ou on extrait en secours si elle vaut 0.
+      int finalColorValue = item.colorValue;
+      if (finalColorValue == 0) {
+        Color extractedColor = await _extractColor(localImage);
+        finalColorValue = extractedColor.value;
+      }
 
       setState(() {
         myWardrobe.add(Cloth(
@@ -938,15 +1090,20 @@ class _MainNavigationState extends State<MainNavigation> {
           mainCategory: item.mainCategory,
           subCategory: item.subCategory,
           brand: item.brand,
-          colorValue: color.value,
+          colorValue: finalColorValue,
         ));
-        myOwnedItemIds.add(item.id);
       });
-      await _saveData();
+      
+      // Sauvegarde asynchrone sans bloquer le thread principal
+      _saveData();
       
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${item.name} ajouté !"), backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${item.name} ajoute !"), backgroundColor: Colors.green));
     } catch (e) {
+      // En cas d'échec de téléchargement, on réactive le bouton proprement
+      setState(() {
+        myOwnedItemIds.remove(item.id);
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
     }
@@ -958,7 +1115,7 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   // ==========================================
-  // --- UI : ONGLET SHOP ---
+  // --- UI : COMPOSANTS ONGLET SHOP ---
   // ==========================================
   Widget _buildShopItemCard(ShopItem item, {bool isLarge = false}) {
     bool isLiked = myWishlistIds.contains(item.id);
@@ -986,6 +1143,14 @@ class _MainNavigationState extends State<MainNavigation> {
                     child: _buildShopImage(item.imagePath),
                   ),
                 ),
+                if (item.colorValue != 0)
+                  Positioned(
+                    left: 8, bottom: 8,
+                    child: Container(
+                      width: 15, height: 15,
+                      decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                    ),
+                  ),
                 Positioned(
                   top: 5, right: 5,
                   child: Container(
@@ -1007,7 +1172,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 ),
                 if (item.isSponsor)
                   Positioned(
-                    bottom: 10, left: 10,
+                    bottom: 10, right: 10,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(10)),
@@ -1040,7 +1205,7 @@ class _MainNavigationState extends State<MainNavigation> {
                           await _deleteItemFromGitHub(itemToDelete);
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text("${itemToDelete.name} supprimé de GitHub"), backgroundColor: Colors.orange)
+                            SnackBar(content: Text("${itemToDelete.name} supprime de GitHub"), backgroundColor: Colors.orange)
                           );
                         },
                       ),
@@ -1061,7 +1226,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("${item.price} €", style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
+                    Text("${item.price} e", style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
                     InkWell(
                       onTap: isOwned ? null : () => _addShopItemToWardrobe(item),
                       child: AnimatedContainer(
@@ -1076,7 +1241,7 @@ class _MainNavigationState extends State<MainNavigation> {
                           children: [
                             if (isOwned) const Icon(Icons.check, color: Colors.white, size: 14),
                             if (isOwned) const SizedBox(width: 4),
-                            Text(isOwned ? "Possédé" : "J'ai", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            Text(isOwned ? "Possede" : "J'ai", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -1095,7 +1260,11 @@ class _MainNavigationState extends State<MainNavigation> {
     var filteredItems = myShopItems.where((item) {
       bool catMatch = _selectedShopCategory == "Tout" || item.mainCategory == _selectedShopCategory;
       bool wishMatch = !_showOnlyWishlist || myWishlistIds.contains(item.id);
-      return catMatch && wishMatch;
+      bool brandMatch = _selectedShopBrandFilter == null || item.brand == _selectedShopBrandFilter;
+      bool priceMatch = item.price <= _maxPriceFilter;
+      bool colorMatch = _selectedShopColorFilter == null || 
+                        (item.colorValue != 0 && _getColorFamily(Color(item.colorValue)) == _selectedShopColorFilter);
+      return catMatch && wishMatch && brandMatch && priceMatch && colorMatch;
     }).toList();
 
     final sponsors = filteredItems.where((item) => item.isSponsor).toList();
@@ -1112,6 +1281,10 @@ class _MainNavigationState extends State<MainNavigation> {
             ),
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.tune),
+              onPressed: _showShopFiltersSheet,
+            ),
             IconButton(
               icon: Icon(_showOnlyWishlist ? Icons.favorite : Icons.favorite_border, color: Colors.red),
               onPressed: () => setState(() => _showOnlyWishlist = !_showOnlyWishlist),
@@ -1171,7 +1344,7 @@ class _MainNavigationState extends State<MainNavigation> {
           padding: const EdgeInsets.symmetric(horizontal: 15),
           sliver: SliverToBoxAdapter(
             child: Text(
-              filteredItems.isEmpty ? "Aucun article" : (_showOnlyWishlist ? "Vos articles préférés" : "Nouveautés"),
+              filteredItems.isEmpty ? "Aucun article" : (_showOnlyWishlist ? "Vos articles preferes" : "Nouveautes"),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
@@ -1200,7 +1373,11 @@ class _MainNavigationState extends State<MainNavigation> {
       var activeCategories = myCategories.where((cat) => myWardrobe.any((cloth) => cloth.mainCategory == cat.name)).toList();
       return GridView.builder(
         padding: const EdgeInsets.all(15),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 15, mainAxisSpacing: 15),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2, 
+          crossAxisSpacing: 15, 
+          mainAxisSpacing: 15
+        ),
         itemCount: activeCategories.length,
         itemBuilder: (context, index) {
           final cat = activeCategories[index];
@@ -1213,7 +1390,10 @@ class _MainNavigationState extends State<MainNavigation> {
               _selectedFamilyFilter = null;
             }),
             child: Container(
-              decoration: BoxDecoration(color: Colors.indigo.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+              decoration: BoxDecoration(
+                color: Colors.indigo.withValues(alpha: 0.1), 
+                borderRadius: BorderRadius.circular(20)
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -1238,127 +1418,146 @@ class _MainNavigationState extends State<MainNavigation> {
       
       var subCats = itemsInCategory.map((c) => c.subCategory).toSet().toList();
       
-      return Column(
-        children: [
-          AppBar(
-            leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _openedCategory = null)),
-            title: Text(_openedCategory!),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                FilterChip(label: const Text("Tout"), selected: _selectedSubFilter == null, onSelected: (v) => setState(() => _selectedSubFilter = null)),
-                ...subCats.map((s) => Padding(
-                  padding: const EdgeInsets.only(left: 5),
-                  child: FilterChip(label: Text(s), selected: _selectedSubFilter == s, onSelected: (v) => setState(() => _selectedSubFilter = v ? s : null)),
-                ))
-              ],
+      // OPTIMISATION GESTES : On enveloppe tout le dossier dans un PopScope
+      return PopScope(
+        canPop: false, // Bloque le retour système par défaut pour éviter de fermer l'appli
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          // Si un dossier est ouvert, le geste retour ferme le dossier au lieu de quitter l'app
+          setState(() {
+            _openedCategory = null;
+          });
+        },
+        child: Column(
+          children: [
+            AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back), 
+                onPressed: () => setState(() => _openedCategory = null)
+              ),
+              title: Text(_openedCategory!),
             ),
-          ),
-          if (presentFamilies.isNotEmpty)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
-                  GestureDetector(
-                    onTap: () => setState(() => _selectedFamilyFilter = null),
-                    child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: _selectedFamilyFilter == null ? Colors.indigo : Colors.grey)),
-                      child: const Icon(Icons.filter_alt_off, size: 20),
-                    ),
-                  ),
-                  ...presentFamilies.map((family) => GestureDetector(
-                    onTap: () => setState(() => _selectedFamilyFilter = family),
-                    child: Column(
-                      children: [
-                        Container(
-                          margin: const EdgeInsets.only(right: 12),
-                          width: 35, height: 35,
-                          decoration: BoxDecoration(
-                            color: _getFamilyDisplayColor(family),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: _selectedFamilyFilter == family ? Colors.indigo : Colors.grey.shade300, width: _selectedFamilyFilter == family ? 3 : 1),
-                          ),
-                        ),
-                        Text(family, style: TextStyle(fontSize: 9, fontWeight: _selectedFamilyFilter == family ? FontWeight.bold : FontWeight.normal))
-                      ],
-                    ),
+                  FilterChip(label: const Text("Tout"), selected: _selectedSubFilter == null, onSelected: (v) => setState(() => _selectedSubFilter = null)),
+                  ...subCats.map((s) => Padding(
+                    padding: const EdgeInsets.only(left: 5),
+                    child: FilterChip(label: Text(s), selected: _selectedSubFilter == s, onSelected: (v) => setState(() => _selectedSubFilter = v ? s : null)),
                   ))
                 ],
               ),
             ),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.75),
-              itemCount: itemsToDisplay.length,
-              itemBuilder: (context, index) {
-                final item = itemsToDisplay[index];
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: Stack(
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+            if (presentFamilies.isNotEmpty)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.all(10),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => setState(() => _selectedFamilyFilter = null),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: _selectedFamilyFilter == null ? Colors.indigo : Colors.grey)),
+                        child: const Icon(Icons.filter_alt_off, size: 20),
+                      ),
+                    ),
+                    ...presentFamilies.map((family) => GestureDetector(
+                      onTap: () => setState(() => _selectedFamilyFilter = family),
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: Container(
-                              color: Colors.grey.shade50,
-                              padding: const EdgeInsets.all(12),
-                              child: Image.file(File(item.imagePath), fit: BoxFit.contain),
+                          Container(
+                            margin: const EdgeInsets.only(right: 12),
+                            width: 35, height: 35,
+                            decoration: BoxDecoration(
+                              color: _getFamilyDisplayColor(family),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: _selectedFamilyFilter == family ? Colors.indigo : Colors.grey.shade300, width: _selectedFamilyFilter == family ? 3 : 1),
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                              children: [
-                                Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                if (item.brand.isNotEmpty) Text(item.brand, style: const TextStyle(fontSize: 10, color: Colors.grey))
-                              ],
-                            ),
-                          )
+                          Text(family, style: TextStyle(fontSize: 9, fontWeight: _selectedFamilyFilter == family ? FontWeight.bold : FontWeight.normal))
                         ],
                       ),
-                      if (item.colorValue != 0)
-                        Positioned(
-                          left: 8, bottom: 8,
-                          child: Container(
-                            width: 15, height: 15,
-                            decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                    ))
+                  ],
+                ),
+              ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, 
+                  crossAxisSpacing: 10, 
+                  mainAxisSpacing: 10, 
+                  childAspectRatio: 0.75
+                ),
+                itemCount: itemsToDisplay.length,
+                itemBuilder: (context, index) {
+                  final item = itemsToDisplay[index];
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: Container(
+                                color: Colors.grey.shade50,
+                                padding: const EdgeInsets.all(12),
+                                child: Image.file(File(item.imagePath), fit: BoxFit.contain),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                children: [
+                                  Text(item.subCategory, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  if (item.brand.isNotEmpty) Text(item.brand, style: const TextStyle(fontSize: 10, color: Colors.grey))
+                                ],
+                              ),
+                            )
+                          ],
+                        ),
+                        if (item.colorValue != 0)
+                          Positioned(
+                            left: 8, bottom: 8,
+                            child: Container(
+                              width: 15, height: 15,
+                              decoration: BoxDecoration(color: Color(item.colorValue), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                            ),
                           ),
-                        ),
-                      Positioned(
-                        right: 0, top: 0,
-                        child: IconButton(
-                          icon: const Icon(Icons.remove_circle, color: Colors.red),
-                          onPressed: () {
-                            setState(() {
-                              myWardrobe.removeWhere((c) => c.id == item.id);
-                              myOwnedItemIds.remove(item.id);
-                              if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) _openedCategory = null;
-                            });
-                            _saveData();
-                          },
-                        ),
-                      )
-                    ],
-                  ),
-                );
-              },
-            ),
-          )
-        ],
+                        Positioned(
+                          right: 0, top: 0,
+                          child: IconButton(
+                            icon: const Icon(Icons.remove_circle, color: Colors.red),
+                            onPressed: () {
+                              setState(() {
+                                myWardrobe.removeWhere((c) => c.id == item.id);
+                                myOwnedItemIds.remove(item.id);
+                                if (!myWardrobe.any((c) => c.mainCategory == _openedCategory)) _openedCategory = null;
+                              });
+                              _saveData();
+                            },
+                          ),
+                        )
+                      ],
+                    ),
+                  );
+                },
+              ),
+            )
+          ],
+        ),
       );
     }
   }
 
   // ==========================================
-  // --- UI : AUTRES ONGLETS ---
+  // --- UI : CONFIGURATION DES AUTRES ONGLETS ---
   // ==========================================
   Widget _buildCanvas(List<ClothPosition> positions, {bool interactive = true, Function? onUpdate, String? selectedClothId, Function(String)? onSelect}) {
     return Stack(
@@ -1427,7 +1626,7 @@ class _MainNavigationState extends State<MainNavigation> {
                           final file = await File(path).writeAsBytes(image);
                           await Gal.putImage(file.path);
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enregistré !")));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enregistre !")));
                         }
                       },
                     ),
@@ -1529,7 +1728,7 @@ class _MainNavigationState extends State<MainNavigation> {
                           final file = await File(path).writeAsBytes(image);
                           await Gal.putImage(file.path);
                           if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enregistré !")));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enregistre !")));
                         }
                       },
                     ),
@@ -1761,50 +1960,6 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
-  void _addNewMainCategory(Function m) {
-    TextEditingController c = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Catégorie"),
-        content: TextField(controller: c, autofocus: true),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              setState(() => myCategories.add(Category(name: c.text, subCategories: ['Général'])));
-              _saveData();
-              m(() {});
-              Navigator.pop(ctx);
-            },
-            child: const Text("Ajouter"),
-          )
-        ],
-      ),
-    );
-  }
-
-  void _addNewSubCategory(String cat, Function m) {
-    TextEditingController c = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text("Type de $cat"),
-        content: TextField(controller: c, autofocus: true),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              setState(() => myCategories.firstWhere((c) => c.name == cat).subCategories.add(c.text));
-              _saveData();
-              m(() {});
-              Navigator.pop(ctx);
-            },
-            child: const Text("Ajouter"),
-          )
-        ],
-      ),
-    );
-  }
-
   void _showAddEntrySheet(File img) {
     String sCat = myCategories[0].name;
     String sSub = myCategories[0].subCategories[0];
@@ -1825,7 +1980,7 @@ class _MainNavigationState extends State<MainNavigation> {
               const SizedBox(height: 15),
               ElevatedButton.icon(
                 icon: const Icon(Icons.psychology),
-                label: const Text("Auto-détection IA"),
+                label: const Text("Auto-detection IA"),
                 onPressed: isProcessing ? null : () async {
                   setModalState(() => isProcessing = true);
                   final detection = await _analyzeImageLabels(img);
@@ -1839,7 +1994,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 },
               ),
               const SizedBox(height: 10),
-              SwitchListTile(title: const Text("Détourer"), value: shouldRemoveBg, onChanged: (v) => setModalState(() => shouldRemoveBg = v)),
+              SwitchListTile(title: const Text("Detourer"), value: shouldRemoveBg, onChanged: (v) => setModalState(() => shouldRemoveBg = v)),
               TextField(decoration: const InputDecoration(labelText: "Marque"), onChanged: (v) => sBrand = v),
               const SizedBox(height: 10),
               Row(
@@ -1905,19 +2060,42 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _selectedIndex != 3 && _openedCategory == null ? AppBar(title: const Text('My Dressing'), centerTitle: true) : null,
-      body: [
-        _buildDressingContent(),
-        _buildOutfitsTab(),
-        _buildStatsTab(),
-        _buildShopTab()
-      ][_selectedIndex],
+      // On cache l'AppBar uniquement si on est sur le Shop ou dans un dossier ouvert
+      appBar: (_selectedIndex != 3 && _openedCategory == null) 
+          ? AppBar(title: const Text('My Dressing'), centerTitle: true) 
+          : null,
+      
+      // --- LE COEUR DE L'ANIMATION : PAGEVIEW ---
+      body: PageView(
+        controller: _pageController,
+        // Cette fonction met à jour l'icône de la barre quand tu swipes
+        onPageChanged: (index) {
+          setState(() {
+            _selectedIndex = index;
+            // On ferme les dossiers si on change d'onglet en swipant
+            if (_openedCategory != null) _openedCategory = null;
+          });
+        },
+        // Liste des pages
+        children: [
+          _buildDressingContent(),
+          _buildOutfitsTab(),
+          _buildStatsTab(),
+          _buildShopTab(),
+        ],
+      ),
+
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (i) => setState(() {
-          _selectedIndex = i;
-          _openedCategory = null;
-        }),
+        onDestinationSelected: (i) {
+          // Quand on clique, on demande au PageView de défiler vers la page i
+          _pageController.animateToPage(
+            i,
+            duration: const Duration(milliseconds: 400), // Vitesse de transition
+            curve: Curves.easeInOutQuart, // Style d'accélération "Premium"
+          );
+          // Le setState sera fait automatiquement par onPageChanged du PageView
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.checkroom), label: 'Dressing'),
           NavigationDestination(icon: Icon(Icons.style), label: 'Tenues'),
@@ -1925,6 +2103,7 @@ class _MainNavigationState extends State<MainNavigation> {
           NavigationDestination(icon: Icon(Icons.shopping_bag), label: 'Shop'),
         ],
       ),
+
       floatingActionButton: (_selectedIndex == 2 || (_selectedIndex == 3 && !_isAdminMode))
           ? null
           : FloatingActionButton(
